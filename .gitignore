@@ -1,0 +1,43 @@
+# Binary
+gatelm
+proxy
+
+# Config with secrets
+config.yaml
+
+# Logs
+logs/
+*.log
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*
+
+# Build artifacts
+dist/
+
+# Scripts
+*.sh
+scripts/
+
+# Claude Code
+.claude/
+AGENTS.md
+CLAUDE.md

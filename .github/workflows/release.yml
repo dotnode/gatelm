@@ -1,0 +1,120 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "已有 tag，例如 v1.0.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build-${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build release archive
+        env:
+          VERSION: ${{ github.event.inputs.tag || github.ref_name }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          OUTPUT_DIR: ${{ github.workspace }}/dist
+        run: |
+          set -euo pipefail
+          VERSION="${VERSION#refs/tags/}"
+          ARCHIVE_BASENAME="gatelm_${VERSION}_${GOOS}_${GOARCH}"
+          STAGE_DIR="${OUTPUT_DIR}/${ARCHIVE_BASENAME}"
+          BINARY_NAME="gatelm"
+
+          if [ "${GOOS}" = "windows" ]; then
+            BINARY_NAME="gatelm.exe"
+          fi
+
+          rm -rf "${STAGE_DIR}"
+          mkdir -p "${STAGE_DIR}"
+
+          CGO_ENABLED=0 GOOS="${GOOS}" GOARCH="${GOARCH}" \
+            go build -trimpath -ldflags="-s -w" -o "${STAGE_DIR}/${BINARY_NAME}" ./cmd/gatelm/
+
+          cp config.example.yaml "${STAGE_DIR}/config.yaml"
+
+          python3 - "${OUTPUT_DIR}" "${ARCHIVE_BASENAME}" <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+          import sys
+
+          output_dir = Path(sys.argv[1])
+          archive_basename = sys.argv[2]
+          stage_dir = output_dir / archive_basename
+          archive_path = output_dir / f"{archive_basename}.zip"
+
+          if archive_path.exists():
+              archive_path.unlink()
+
+          with ZipFile(archive_path, "w", compression=ZIP_DEFLATED) as zf:
+              for path in sorted(stage_dir.rglob("*")):
+                  if path.is_file():
+                      zf.write(path, arcname=path.relative_to(output_dir))
+          PY
+
+      - name: Upload archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  publish:
+    name: publish-release
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Download archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: artifacts/*.zip
+          generate_release_notes: true
+          overwrite_files: true
