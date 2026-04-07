@@ -165,7 +165,7 @@ func TestConsoleLogsAndSaveConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yaml")
 	dbPath := filepath.Join(tmpDir, "usage.db")
-	original := []byte("listen: ':8080'\nconsole:\n  enabled: true\n  password: test-pass\nbackends:\n  - name: b1\n    url: http://example.com\n    protocol: openai\n    models:\n      - name: gpt-4o\n")
+	original := []byte("# top comment\nlisten: ':8080'\n\n# console comment\nconsole:\n  enabled: true\n  password: test-pass\n\n# model defaults comment\nmodel_defaults:\n  gpt-4o: # model default comment\n    reasoning_effort: high\n\n# backends comment\nbackends:\n  - name: b1 # backend comment\n    url: http://example.com\n    protocol: openai\n    headers:\n      Authorization: Bearer a # header comment\n    health_check: # health check comment\n      path: /healthz # health path comment\n      interval: 30s # health interval comment\n    models:\n      - name: gpt-4o # model comment\n        aliases: [claude-sonnet-4]\n")
 	if err := os.WriteFile(configPath, original, 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -242,13 +242,19 @@ func TestConsoleLogsAndSaveConfig(t *testing.T) {
 	payload := consoleConfigPayload{
 		Listen: ":9090",
 		Backends: []config.Backend{{
-			Name:     "b2",
+			Name:     "b1",
 			URL:      "http://example.org",
 			Protocol: "openai",
-			Models:   []config.Model{{Name: "gpt-4.1", Aliases: []string{"claude-opus-4.6"}}},
+			Headers:  map[string]string{"Authorization": "Bearer b"},
+			HealthCheck: &config.HealthCheckConfig{
+				Path:     "/readyz",
+				Interval: "45s",
+			},
+			Models: []config.Model{{Name: "gpt-4o", Aliases: []string{"claude-opus-4.6"}}},
 		}},
-		TokenLog: config.TokenLogConfig{Enabled: true, File: dbPath},
-		Console:  config.ConsoleConfig{Enabled: true, Password: "test-pass"},
+		TokenLog:      config.TokenLogConfig{Enabled: true, File: dbPath},
+		ModelDefaults: map[string]config.ModelDefaultConfig{"gpt-4o": {ReasoningEffort: "medium"}},
+		Console:       config.ConsoleConfig{Enabled: true, Password: "test-pass"},
 	}
 	body, _ := json.Marshal(payload)
 	saveReq := httptest.NewRequest(http.MethodPut, "/console/api/config", bytes.NewReader(body))
@@ -260,5 +266,73 @@ func TestConsoleLogsAndSaveConfig(t *testing.T) {
 	}
 	if srv.snapshot().cfg.Listen != ":9090" {
 		t.Fatalf("expected reloaded listen, got %s", srv.snapshot().cfg.Listen)
+	}
+	updated, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read updated config: %v", err)
+	}
+	updatedText := string(updated)
+	if !bytes.Contains(updated, []byte("# top comment")) {
+		t.Fatalf("expected top comment to be preserved, got:\n%s", updatedText)
+	}
+	if !bytes.Contains(updated, []byte("# console comment")) {
+		t.Fatalf("expected console comment to be preserved, got:\n%s", updatedText)
+	}
+	if !bytes.Contains(updated, []byte("# backends comment")) {
+		t.Fatalf("expected backends comment to be preserved, got:\n%s", updatedText)
+	}
+	if !bytes.Contains(updated, []byte("# backend comment")) {
+		t.Fatalf("expected backend comment to be preserved, got:\n%s", updatedText)
+	}
+	if !bytes.Contains(updated, []byte("# model comment")) {
+		t.Fatalf("expected model comment to be preserved, got:\n%s", updatedText)
+	}
+	if !bytes.Contains(updated, []byte("# header comment")) {
+		t.Fatalf("expected header comment to be preserved, got:\n%s", updatedText)
+	}
+	if !bytes.Contains(updated, []byte("# health check comment")) {
+		t.Fatalf("expected health check comment to be preserved, got:\n%s", updatedText)
+	}
+	if !bytes.Contains(updated, []byte("# health path comment")) {
+		t.Fatalf("expected health path comment to be preserved, got:\n%s", updatedText)
+	}
+	if !bytes.Contains(updated, []byte("# health interval comment")) {
+		t.Fatalf("expected health interval comment to be preserved, got:\n%s", updatedText)
+	}
+	if !bytes.Contains(updated, []byte("# model defaults comment")) {
+		t.Fatalf("expected model defaults comment to be preserved, got:\n%s", updatedText)
+	}
+	if !bytes.Contains(updated, []byte("# model default comment")) {
+		t.Fatalf("expected model default comment to be preserved, got:\n%s", updatedText)
+	}
+}
+
+func TestSaveAndReloadConfigRejectsInvalidConfigWithoutOverwrite(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	original := []byte("# keep me\nlisten: ':8080'\nconsole:\n  enabled: true\n  password: test-pass\nbackends:\n  - name: b1\n    url: http://example.com\n    protocol: openai\n    models:\n      - name: gpt-4o\n")
+	if err := os.WriteFile(configPath, original, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	srv := New(cfg, nil, logging.NewDebugLog(false, ""), http.DefaultClient, NewHealthManager(HealthManagerConfig{}, http.DefaultClient, logging.NewDebugLog(false, "")), NewNoopObserver())
+	srv.SetConfigPath(configPath)
+
+	invalid := cfg
+	invalid.Backends = nil
+	if err := srv.SaveAndReloadConfig(configPath, invalid); err == nil {
+		t.Fatal("expected invalid config error")
+	}
+
+	after, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config after failed save: %v", err)
+	}
+	if !bytes.Equal(after, original) {
+		t.Fatalf("expected config file unchanged after failed save\nwant:\n%s\n\ngot:\n%s", string(original), string(after))
 	}
 }

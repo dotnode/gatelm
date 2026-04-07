@@ -198,9 +198,9 @@ func (s *Server) handleConsoleConfigPut(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) SaveAndReloadConfig(path string, cfg config.Config) error {
-	body, err := yaml.Marshal(cfg)
+	body, err := patchConfigYAML(path, cfg)
 	if err != nil {
-		return fmt.Errorf("marshal config failed: %w", err)
+		return err
 	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -227,6 +227,247 @@ func (s *Server) SaveAndReloadConfig(path string, cfg config.Config) error {
 		return fmt.Errorf("replace config failed: %w", err)
 	}
 	return s.ReloadConfig(validated)
+}
+
+var consoleConfigYAMLFields = []struct {
+	key   string
+	value func(config.Config) any
+	merge func(oldValue, newValue *yaml.Node)
+}{
+	{key: "listen", value: func(cfg config.Config) any { return cfg.Listen }},
+	{key: "debug", value: func(cfg config.Config) any { return cfg.Debug }},
+	{key: "max_concurrent_requests", value: func(cfg config.Config) any { return cfg.MaxConcurrentRequests }},
+	{key: "backends", value: func(cfg config.Config) any { return cfg.Backends }, merge: mergeBackendsNode},
+	{key: "token_log", value: func(cfg config.Config) any { return cfg.TokenLog }},
+	{key: "api_keys", value: func(cfg config.Config) any { return cfg.APIKeys }},
+	{key: "model_defaults", value: func(cfg config.Config) any { return cfg.ModelDefaults }, merge: mergeMappingEntriesNode},
+	{key: "system_prompt", value: func(cfg config.Config) any { return cfg.SystemPrompt }},
+	{key: "circuit_breaker", value: func(cfg config.Config) any { return cfg.CircuitBreaker }},
+	{key: "console", value: func(cfg config.Config) any { return cfg.Console }},
+	{key: "trusted_proxies", value: func(cfg config.Config) any { return cfg.TrustedProxies }},
+}
+
+func patchConfigYAML(path string, cfg config.Config) ([]byte, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read config failed: %w", err)
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(body, &doc); err != nil {
+		return nil, fmt.Errorf("parse config failed: %w", err)
+	}
+	root, err := configRootMappingNode(&doc)
+	if err != nil {
+		return nil, err
+	}
+	for _, field := range consoleConfigYAMLFields {
+		valueNode, err := marshalYAMLValueNode(field.value(cfg))
+		if err != nil {
+			return nil, fmt.Errorf("marshal %s failed: %w", field.key, err)
+		}
+		upsertMappingValueWithMerge(root, field.key, valueNode, field.merge)
+	}
+	var out bytes.Buffer
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(2)
+	if err := enc.Encode(&doc); err != nil {
+		return nil, fmt.Errorf("encode config failed: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return nil, fmt.Errorf("close yaml encoder failed: %w", err)
+	}
+	return out.Bytes(), nil
+}
+
+func configRootMappingNode(doc *yaml.Node) (*yaml.Node, error) {
+	if doc == nil || doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+		return nil, fmt.Errorf("invalid config yaml document")
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("config root must be a mapping")
+	}
+	return root, nil
+}
+
+func marshalYAMLValueNode(v any) (*yaml.Node, error) {
+	var node yaml.Node
+	if err := node.Encode(v); err != nil {
+		return nil, err
+	}
+	if node.Kind == 0 {
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null", Value: "null"}, nil
+	}
+	return &node, nil
+}
+
+func upsertMappingValue(root *yaml.Node, key string, value *yaml.Node) {
+	upsertMappingValueWithMerge(root, key, value, nil)
+}
+
+func upsertMappingValueWithMerge(root *yaml.Node, key string, value *yaml.Node, merge func(oldValue, newValue *yaml.Node)) {
+	if root == nil || root.Kind != yaml.MappingNode {
+		return
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != key {
+			continue
+		}
+		if merge != nil {
+			merge(root.Content[i+1], value)
+		}
+		preserveNodeComments(root.Content[i+1], value)
+		root.Content[i+1] = value
+		return
+	}
+	keyNode := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}
+	if len(root.Content) > 0 {
+		preserveSpacingFromPreviousValue(root.Content[len(root.Content)-1], keyNode)
+	}
+	root.Content = append(root.Content, keyNode, value)
+}
+
+func mergeBackendsNode(oldValue, newValue *yaml.Node) {
+	if oldValue == nil || newValue == nil || oldValue.Kind != yaml.SequenceNode || newValue.Kind != yaml.SequenceNode {
+		return
+	}
+	oldByName := make(map[string]*yaml.Node, len(oldValue.Content))
+	for _, item := range oldValue.Content {
+		if name := mappingValueString(item, "name"); name != "" {
+			oldByName[name] = item
+		}
+	}
+	for _, item := range newValue.Content {
+		oldItem := oldByName[mappingValueString(item, "name")]
+		if oldItem == nil {
+			continue
+		}
+		mergeBackendNode(oldItem, item)
+		preserveNodeComments(oldItem, item)
+	}
+}
+
+func mergeBackendNode(oldValue, newValue *yaml.Node) {
+	if oldValue == nil || newValue == nil || oldValue.Kind != yaml.MappingNode || newValue.Kind != yaml.MappingNode {
+		return
+	}
+	mergeMappingKeyWithMerge(oldValue, newValue, "models", mergeModelsNode)
+	mergeMappingKeyWithMerge(oldValue, newValue, "headers", mergeMappingEntriesNode)
+	mergeMappingKeyWithMerge(oldValue, newValue, "health_check", mergeMappingEntriesNode)
+	mergeMatchingChildComments(oldValue, newValue)
+}
+
+func mergeModelsNode(oldValue, newValue *yaml.Node) {
+	if oldValue == nil || newValue == nil || oldValue.Kind != yaml.SequenceNode || newValue.Kind != yaml.SequenceNode {
+		return
+	}
+	oldByName := make(map[string]*yaml.Node, len(oldValue.Content))
+	for _, item := range oldValue.Content {
+		if name := mappingValueString(item, "name"); name != "" {
+			oldByName[name] = item
+		}
+	}
+	for _, item := range newValue.Content {
+		oldItem := oldByName[mappingValueString(item, "name")]
+		if oldItem == nil {
+			continue
+		}
+		mergeMatchingChildComments(oldItem, item)
+		preserveNodeComments(oldItem, item)
+	}
+}
+
+func mergeMappingEntriesNode(oldValue, newValue *yaml.Node) {
+	if oldValue == nil || newValue == nil || oldValue.Kind != yaml.MappingNode || newValue.Kind != yaml.MappingNode {
+		return
+	}
+	for i := 0; i+1 < len(newValue.Content); i += 2 {
+		newKey := newValue.Content[i]
+		newChild := newValue.Content[i+1]
+		for j := 0; j+1 < len(oldValue.Content); j += 2 {
+			if oldValue.Content[j].Value != newKey.Value {
+				continue
+			}
+			preserveNodeComments(oldValue.Content[j], newKey)
+			preserveNodeComments(oldValue.Content[j+1], newChild)
+			mergeMatchingChildComments(oldValue.Content[j+1], newChild)
+			break
+		}
+	}
+}
+
+func mergeMappingKeyWithMerge(oldRoot, newRoot *yaml.Node, key string, merge func(oldValue, newValue *yaml.Node)) {
+	oldValue := mappingValueNode(oldRoot, key)
+	newValue := mappingValueNode(newRoot, key)
+	if oldValue == nil || newValue == nil {
+		return
+	}
+	if merge != nil {
+		merge(oldValue, newValue)
+	}
+	preserveNodeComments(oldValue, newValue)
+}
+
+func mergeMatchingChildComments(oldNode, newNode *yaml.Node) {
+	if oldNode == nil || newNode == nil || oldNode.Kind != yaml.MappingNode || newNode.Kind != yaml.MappingNode {
+		return
+	}
+	for i := 0; i+1 < len(newNode.Content); i += 2 {
+		newKey := newNode.Content[i]
+		newValue := newNode.Content[i+1]
+		for j := 0; j+1 < len(oldNode.Content); j += 2 {
+			if oldNode.Content[j].Value != newKey.Value {
+				continue
+			}
+			preserveNodeComments(oldNode.Content[j], newKey)
+			preserveNodeComments(oldNode.Content[j+1], newValue)
+			break
+		}
+	}
+}
+
+func mappingValueNode(root *yaml.Node, key string) *yaml.Node {
+	if root == nil || root.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == key {
+			return root.Content[i+1]
+		}
+	}
+	return nil
+}
+
+func mappingValueString(root *yaml.Node, key string) string {
+	node := mappingValueNode(root, key)
+	if node == nil {
+		return ""
+	}
+	return node.Value
+}
+
+func preserveNodeComments(oldNode, newNode *yaml.Node) {
+	if oldNode == nil || newNode == nil {
+		return
+	}
+	if newNode.HeadComment == "" {
+		newNode.HeadComment = oldNode.HeadComment
+	}
+	if newNode.LineComment == "" {
+		newNode.LineComment = oldNode.LineComment
+	}
+	if newNode.FootComment == "" {
+		newNode.FootComment = oldNode.FootComment
+	}
+}
+
+func preserveSpacingFromPreviousValue(previousValue, keyNode *yaml.Node) {
+	if previousValue == nil || keyNode == nil {
+		return
+	}
+	if previousValue.FootComment != "" {
+		keyNode.HeadComment = previousValue.FootComment
+	}
 }
 
 func (s *Server) ReloadConfig(newCfg config.Config) error {
