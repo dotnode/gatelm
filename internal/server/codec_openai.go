@@ -73,8 +73,7 @@ func (c *openaiChatCodec) ResponseToCanonical(body []byte, statusCode int) ([]by
 
 // ResponseFromCanonical converts canonical (Responses) response → Chat format.
 func (c *openaiChatCodec) ResponseFromCanonical(body []byte, statusCode int) ([]byte, error) {
-	// TODO: implement when OpenAI Chat clients need Responses backend responses
-	return body, nil
+	return responsesResponseToChat(body, statusCode)
 }
 
 // ── Streaming ──
@@ -772,31 +771,282 @@ func (d *openaiChatStreamDecoder) makeEvent(eventType string, data any) Canonica
 
 // ---------------------------------------------------------------------------
 // OpenAI Chat stream encoder: canonical events → Chat SSE chunks
-// (for passthrough or future Responses→Chat streaming)
+// Converts Responses API events to OpenAI Chat Completions streaming format.
 // ---------------------------------------------------------------------------
 
 type openaiChatStreamEncoder struct {
 	w     http.ResponseWriter
 	debug *logging.DebugLog
+
+	// state
+	id              string
+	model           string
+	chunkIndex      int
+	textStarted      bool
+	toolCalls       map[int]*chatEncoderToolCall
+	finishReason    string
+	usage           struct {
+		promptTokens     int
+		completionTokens int
+	}
+}
+
+type chatEncoderToolCall struct {
+	id   string
+	name string
+	args strings.Builder
 }
 
 func (e *openaiChatStreamEncoder) Encode(event CanonicalEvent) error {
-	// For passthrough, write as-is in Chat SSE format
-	line := "data: " + string(event.Data) + "\n\n"
-	_, err := e.w.Write([]byte(line))
-	if err != nil {
-		return err
+	var data map[string]any
+	if err := json.Unmarshal(event.Data, &data); err != nil {
+		return nil
 	}
-	if f, ok := e.w.(http.Flusher); ok {
-		f.Flush()
+
+	switch event.EventType {
+	case "response.created", "response.in_progress":
+		resp := e.extractResponse(data)
+		if resp != nil {
+			e.id, _ = resp["id"].(string)
+			e.model, _ = resp["model"].(string)
+		}
+
+	case "response.reasoning_summary_part.added":
+		// Ignore reasoning for Chat format (no equivalent)
+
+	case "response.reasoning_summary_text.delta":
+		// Ignore reasoning for Chat format
+
+	case "response.reasoning_summary_text.done", "response.reasoning_summary_part.done":
+		// Ignore reasoning for Chat format
+
+	case "response.output_item.added":
+		item, _ := data["item"].(map[string]any)
+		if item == nil {
+			break
+		}
+		itemType, _ := item["type"].(string)
+		if itemType == "function_call" {
+			callID, _ := item["call_id"].(string)
+			name, _ := item["name"].(string)
+			idx := int(getFloat(data, "output_index"))
+			if e.toolCalls == nil {
+				e.toolCalls = make(map[int]*chatEncoderToolCall)
+			}
+			e.toolCalls[idx] = &chatEncoderToolCall{
+				id:   callID,
+				name: name,
+			}
+			e.writeChunk(map[string]any{
+				"id":      e.id,
+				"object":  "chat.completion.chunk",
+				"created": 0,
+				"model":   e.model,
+				"choices": []any{
+					map[string]any{
+						"index": 0,
+						"delta": map[string]any{
+							"tool_calls": []any{
+								map[string]any{
+									"index": idx,
+									"id":    callID,
+									"type":  "function",
+									"function": map[string]any{
+										"name":      name,
+										"arguments": "",
+									},
+								},
+							},
+						},
+					},
+				},
+			})
+		}
+
+	case "response.content_part.added":
+		// Text content starting
+
+	case "response.output_text.delta":
+		delta, _ := data["delta"].(string)
+		if delta == "" {
+			break
+		}
+		if !e.textStarted {
+			e.textStarted = true
+			e.writeChunk(map[string]any{
+				"id":      e.id,
+				"object":  "chat.completion.chunk",
+				"created": 0,
+				"model":   e.model,
+				"choices": []any{
+					map[string]any{
+						"index": 0,
+						"delta": map[string]any{
+							"role":    "assistant",
+							"content": "",
+						},
+					},
+				},
+			})
+		}
+		e.writeChunk(map[string]any{
+			"id":      e.id,
+			"object":  "chat.completion.chunk",
+			"created": 0,
+			"model":   e.model,
+			"choices": []any{
+				map[string]any{
+					"index": 0,
+					"delta": map[string]any{
+						"content": delta,
+					},
+				},
+			},
+		})
+
+	case "response.output_text.done":
+		// Text done
+
+	case "response.function_call_arguments.delta":
+		delta, _ := data["delta"].(string)
+		idx := int(getFloat(data, "output_index"))
+		if tc, ok := e.toolCalls[idx]; ok && delta != "" {
+			tc.args.WriteString(delta)
+			e.writeChunk(map[string]any{
+				"id":      e.id,
+				"object":  "chat.completion.chunk",
+				"created": 0,
+				"model":   e.model,
+				"choices": []any{
+					map[string]any{
+						"index": 0,
+						"delta": map[string]any{
+							"tool_calls": []any{
+								map[string]any{
+									"index": idx,
+									"function": map[string]any{
+										"arguments": delta,
+									},
+								},
+							},
+						},
+					},
+				},
+			})
+		}
+
+	case "response.function_call_arguments.done":
+		// Tool call done
+
+	case "response.completed":
+		e.extractCompletedInfo(data)
+
+	case "response.failed", "error":
+		// Handle error
+		errMsg := "streaming error"
+		if errObj, ok := data["error"].(map[string]any); ok {
+			if msg, ok := errObj["message"].(string); ok {
+				errMsg = msg
+			}
+		}
+		e.writeChunk(map[string]any{
+			"id":      e.id,
+			"object":  "chat.completion.chunk",
+			"created": 0,
+			"model":   e.model,
+			"choices": []any{
+				map[string]any{
+					"index": 0,
+					"delta": map[string]any{
+						"content": "\n[Error: " + errMsg + "]",
+					},
+				},
+			},
+		})
 	}
+
 	return nil
 }
 
 func (e *openaiChatStreamEncoder) Close() error {
+	// Send finish chunk
+	finishReason := e.finishReason
+	if len(e.toolCalls) > 0 && finishReason == "" {
+		finishReason = "tool_calls"
+	}
+	if finishReason == "" {
+		finishReason = "stop"
+	}
+	// Map status to finish_reason
+	if finishReason == "end_turn" {
+		finishReason = "stop"
+	} else if finishReason == "max_tokens" {
+		finishReason = "length"
+	}
+
+	e.writeChunk(map[string]any{
+		"id":      e.id,
+		"object":  "chat.completion.chunk",
+		"created": 0,
+		"model":   e.model,
+		"choices": []any{
+			map[string]any{
+				"index":         0,
+				"delta":         map[string]any{},
+				"finish_reason": finishReason,
+			},
+		},
+	})
+
 	_, err := e.w.Write([]byte("data: [DONE]\n\n"))
 	if f, ok := e.w.(http.Flusher); ok {
 		f.Flush()
 	}
 	return err
+}
+
+func (e *openaiChatStreamEncoder) extractResponse(data map[string]any) map[string]any {
+	if resp, ok := data["response"].(map[string]any); ok {
+		return resp
+	}
+	return data
+}
+
+func (e *openaiChatStreamEncoder) extractCompletedInfo(data map[string]any) {
+	resp := e.extractResponse(data)
+	if m, ok := resp["model"].(string); ok && m != "" {
+		e.model = m
+	}
+	if status, ok := resp["status"].(string); ok {
+		switch status {
+		case "completed":
+			e.finishReason = "stop"
+		case "incomplete":
+			e.finishReason = "length"
+		}
+	}
+	if usage, ok := resp["usage"].(map[string]any); ok {
+		e.usage.promptTokens = int(getFloat(usage, "input_tokens"))
+		e.usage.completionTokens = int(getFloat(usage, "output_tokens"))
+	}
+	// Check for tool_use in output
+	if output, ok := resp["output"].([]any); ok {
+		for _, item := range output {
+			if m, ok := item.(map[string]any); ok {
+				if t, _ := m["type"].(string); t == "function_call" {
+					e.finishReason = "tool_calls"
+					break
+				}
+			}
+		}
+	}
+}
+
+func (e *openaiChatStreamEncoder) writeChunk(data any) {
+	jsonData, _ := json.Marshal(data)
+	line := "data: " + string(jsonData) + "\n\n"
+	e.w.Write([]byte(line))
+	if f, ok := e.w.(http.Flusher); ok {
+		f.Flush()
+	}
 }

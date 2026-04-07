@@ -35,10 +35,13 @@ func (c *anthropicCodec) ToCanonical(body []byte, opts EncodeOpts) ([]byte, erro
 	return converted, err
 }
 
-// FromCanonical converts canonical → Anthropic outbound format.
-// TODO: implement when Anthropic backends are needed.
+// FromCanonical converts canonical (Responses) request → Anthropic outbound format.
 func (c *anthropicCodec) FromCanonical(body []byte) ([]byte, string, error) {
-	return body, "/v1/messages", nil
+	converted, err := convertResponsesRequestToAnthropic(body)
+	if err != nil {
+		return nil, "", err
+	}
+	return converted, "/v1/messages", nil
 }
 
 // InjectDefaults performs lightweight injection on Anthropic body.
@@ -59,10 +62,9 @@ func (c *anthropicCodec) InjectSystemPrompt(body []byte, prompt string) []byte {
 
 // ── Response direction ──
 
-// ResponseToCanonical converts Anthropic response → canonical.
-// TODO: implement when Anthropic backends are needed.
-func (c *anthropicCodec) ResponseToCanonical(body []byte, _ int) ([]byte, error) {
-	return body, nil
+// ResponseToCanonical converts Anthropic response → canonical (Responses) format.
+func (c *anthropicCodec) ResponseToCanonical(body []byte, statusCode int) ([]byte, error) {
+	return convertAnthropicResponseToResponses(body, statusCode)
 }
 
 // ResponseFromCanonical converts canonical (Responses) response → Anthropic format.
@@ -121,21 +123,262 @@ func injectAnthropicSystemPrompt(body []byte, prompt string) []byte {
 }
 
 // ---------------------------------------------------------------------------
-// Anthropic stream decoder (placeholder — for Anthropic backend SSE input)
+// Anthropic stream decoder (Anthropic backend SSE → canonical events)
 // ---------------------------------------------------------------------------
 
 type anthropicStreamDecoder struct {
 	debug *logging.DebugLog
 	usage logging.UsageInfo
+
+	// state
+	model           string
+	id              string
+	thinkingOpen    bool
+	textOpen        bool
+	textIndex       int
+	thinkingIndex   int
+	nextBlockIndex  int
+	activeToolCalls map[int]*anthropicToolCall
+	sawToolUse      bool
+	stopReason      string
 }
 
-func (d *anthropicStreamDecoder) Decode(_ string) ([]CanonicalEvent, error) {
-	// TODO: implement Anthropic SSE → canonical events when Anthropic backends are added
-	return nil, nil
+type anthropicToolCall struct {
+	blockIndex int
+	id         string
+	name       string
+}
+
+func (d *anthropicStreamDecoder) Decode(line string) ([]CanonicalEvent, error) {
+	if !strings.HasPrefix(line, "data: ") {
+		return nil, nil
+	}
+
+	data := line[6:]
+	if data == "" {
+		return nil, nil
+	}
+
+	var event struct {
+		Type    string          `json:"type"`
+		Index   int             `json:"index"`
+		Message json.RawMessage `json:"message"`
+		Delta   json.RawMessage `json:"delta"`
+		ContentBlock json.RawMessage `json:"content_block"`
+	}
+
+	if err := json.Unmarshal([]byte(data), &event); err != nil {
+		return nil, nil
+	}
+
+	var events []CanonicalEvent
+
+	switch event.Type {
+	case "message_start":
+		var msg struct {
+			ID      string `json:"id"`
+			Model   string `json:"model"`
+			Content []any  `json:"content"`
+			Usage   struct {
+				InputTokens  int `json:"input_tokens"`
+				OutputTokens int `json:"output_tokens"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal(event.Message, &msg); err == nil {
+			d.id = msg.ID
+			d.model = msg.Model
+			d.usage.InputTokens = msg.Usage.InputTokens
+		}
+		events = append(events, d.makeEvent("response.created", map[string]any{
+			"response": map[string]any{
+				"id":     d.id,
+				"model":  d.model,
+				"status": "in_progress",
+			},
+		}))
+
+	case "content_block_start":
+		var block struct {
+			Type  string `json:"type"`
+			Text  string `json:"text"`
+			ID    string `json:"id"`
+			Name  string `json:"name"`
+		}
+		if err := json.Unmarshal(event.ContentBlock, &block); err != nil {
+			return nil, nil
+		}
+
+		idx := event.Index
+		d.nextBlockIndex = idx + 1
+
+		switch block.Type {
+		case "thinking":
+			d.thinkingOpen = true
+			d.thinkingIndex = idx
+			events = append(events, d.makeEvent("response.reasoning_summary_part.added", map[string]any{}))
+
+		case "text":
+			d.textOpen = true
+			d.textIndex = idx
+			events = append(events, d.makeEvent("response.output_item.added", map[string]any{
+				"output_index": idx,
+				"item":         map[string]any{"type": "message"},
+			}))
+			events = append(events, d.makeEvent("response.content_part.added", map[string]any{
+				"output_index": idx,
+			}))
+
+		case "tool_use":
+			d.sawToolUse = true
+			d.closeTextBlock(&events)
+			if d.activeToolCalls == nil {
+				d.activeToolCalls = make(map[int]*anthropicToolCall)
+			}
+			d.activeToolCalls[idx] = &anthropicToolCall{
+				blockIndex: idx,
+				id:         block.ID,
+				name:       block.Name,
+			}
+			events = append(events, d.makeEvent("response.output_item.added", map[string]any{
+				"output_index": idx,
+				"item": map[string]any{
+					"type":    "function_call",
+					"call_id": block.ID,
+					"name":    block.Name,
+				},
+			}))
+		}
+
+	case "content_block_delta":
+		var delta struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+			Thinking string `json:"thinking"`
+			PartialJSON string `json:"partial_json"`
+		}
+		if err := json.Unmarshal(event.Delta, &delta); err != nil {
+			return nil, nil
+		}
+
+		idx := event.Index
+
+		switch delta.Type {
+		case "thinking_delta":
+			if delta.Thinking != "" && d.thinkingOpen {
+				events = append(events, d.makeEvent("response.reasoning_summary_text.delta", map[string]any{
+					"delta": delta.Thinking,
+				}))
+			}
+
+		case "text_delta":
+			if delta.Text != "" && d.textOpen {
+				events = append(events, d.makeEvent("response.output_text.delta", map[string]any{
+					"output_index": idx,
+					"delta":        delta.Text,
+				}))
+			}
+
+		case "input_json_delta":
+			if tc, ok := d.activeToolCalls[idx]; ok && delta.PartialJSON != "" {
+				events = append(events, d.makeEvent("response.function_call_arguments.delta", map[string]any{
+					"output_index": tc.blockIndex,
+					"delta":        delta.PartialJSON,
+				}))
+			}
+		}
+
+	case "content_block_stop":
+		idx := event.Index
+		if d.thinkingOpen && idx == d.thinkingIndex {
+			d.thinkingOpen = false
+			events = append(events, d.makeEvent("response.reasoning_summary_text.done", map[string]any{}))
+			events = append(events, d.makeEvent("response.reasoning_summary_part.done", map[string]any{}))
+		} else if d.textOpen && idx == d.textIndex {
+			d.textOpen = false
+			events = append(events, d.makeEvent("response.output_text.done", map[string]any{
+				"output_index": idx,
+			}))
+		} else if tc, ok := d.activeToolCalls[idx]; ok {
+			events = append(events, d.makeEvent("response.function_call_arguments.done", map[string]any{
+				"output_index": tc.blockIndex,
+			}))
+			delete(d.activeToolCalls, idx)
+		}
+
+	case "message_delta":
+		var delta struct {
+			StopReason string `json:"stop_reason"`
+			Usage      struct {
+				OutputTokens int `json:"output_tokens"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal(event.Delta, &delta); err == nil {
+			d.stopReason = delta.StopReason
+			d.usage.OutputTokens = delta.Usage.OutputTokens
+		}
+
+	case "message_stop":
+		// Will be handled in Flush
+
+	case "ping":
+		// Ignore
+	}
+
+	return events, nil
 }
 
 func (d *anthropicStreamDecoder) Flush() ([]CanonicalEvent, logging.UsageInfo) {
-	return nil, d.usage
+	d.usage.ResponseModel = d.model
+
+	var events []CanonicalEvent
+
+	// Close any open blocks
+	if d.thinkingOpen {
+		events = append(events, d.makeEvent("response.reasoning_summary_text.done", map[string]any{}))
+		events = append(events, d.makeEvent("response.reasoning_summary_part.done", map[string]any{}))
+	}
+	if d.textOpen {
+		events = append(events, d.makeEvent("response.output_text.done", map[string]any{
+			"output_index": d.textIndex,
+		}))
+	}
+
+	// Determine status from stop_reason
+	status := "completed"
+	if d.stopReason == "max_tokens" {
+		status = "incomplete"
+	}
+
+	events = append(events, d.makeEvent("response.completed", map[string]any{
+		"response": map[string]any{
+			"id":     d.id,
+			"model":  d.model,
+			"status": status,
+			"usage": map[string]any{
+				"input_tokens":  d.usage.InputTokens,
+				"output_tokens": d.usage.OutputTokens,
+			},
+		},
+	}))
+
+	return events, d.usage
+}
+
+func (d *anthropicStreamDecoder) closeTextBlock(events *[]CanonicalEvent) {
+	if d.textOpen {
+		d.textOpen = false
+		*events = append(*events, d.makeEvent("response.output_text.done", map[string]any{
+			"output_index": d.textIndex,
+		}))
+	}
+}
+
+func (d *anthropicStreamDecoder) makeEvent(eventType string, data any) CanonicalEvent {
+	jsonData, _ := json.Marshal(data)
+	return CanonicalEvent{
+		EventType: eventType,
+		Data:      json.RawMessage(jsonData),
+	}
 }
 
 // ---------------------------------------------------------------------------

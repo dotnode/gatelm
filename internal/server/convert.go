@@ -877,3 +877,498 @@ func convertOpenAIResponsesResponseToAnthropic(body []byte, statusCode int) ([]b
 
 	return json.Marshal(resp)
 }
+
+// convertResponsesRequestToAnthropic converts a canonical (Responses API) request
+// to Anthropic /v1/messages format.
+func convertResponsesRequestToAnthropic(body []byte) ([]byte, error) {
+	var src map[string]any
+	if err := json.Unmarshal(body, &src); err != nil {
+		return nil, fmt.Errorf("unmarshal responses request: %w", err)
+	}
+
+	dst := make(map[string]any)
+
+	// Direct field copies
+	if v, ok := src["model"]; ok {
+		dst["model"] = v
+	}
+	if v, ok := src["stream"]; ok {
+		dst["stream"] = v
+	}
+	if v, ok := src["temperature"]; ok {
+		dst["temperature"] = v
+	}
+	if v, ok := src["top_p"]; ok {
+		dst["top_p"] = v
+	}
+
+	// max_output_tokens → max_tokens
+	if v, ok := src["max_output_tokens"]; ok {
+		dst["max_tokens"] = v
+	}
+
+	// stop → stop_sequences
+	if v, ok := src["stop"]; ok {
+		dst["stop_sequences"] = v
+	}
+
+	// reasoning.effort → thinking (with budget_tokens)
+	if reasoning, ok := src["reasoning"].(map[string]any); ok {
+		if effort, ok := reasoning["effort"].(string); ok {
+			switch effort {
+			case "low":
+				dst["thinking"] = map[string]any{"type": "enabled", "budget_tokens": 4096}
+			case "medium":
+				dst["thinking"] = map[string]any{"type": "enabled", "budget_tokens": 12288}
+			case "high":
+				dst["thinking"] = map[string]any{"type": "enabled", "budget_tokens": 32768}
+			case "xhigh":
+				dst["thinking"] = map[string]any{"type": "enabled", "budget_tokens": 65536}
+			}
+		}
+	}
+
+	// tools: Responses {type,name,description,parameters} → Anthropic {name,description,input_schema}
+	if tools, ok := src["tools"].([]any); ok && len(tools) > 0 {
+		var anthropicTools []any
+		for _, t := range tools {
+			tm, ok := t.(map[string]any)
+			if !ok {
+				continue
+			}
+			at := map[string]any{}
+			if v, ok := tm["name"].(string); ok {
+				at["name"] = v
+			}
+			if v, ok := tm["description"].(string); ok {
+				at["description"] = v
+			}
+			if v, ok := tm["parameters"]; ok {
+				at["input_schema"] = v
+			}
+			anthropicTools = append(anthropicTools, at)
+		}
+		if len(anthropicTools) > 0 {
+			dst["tools"] = anthropicTools
+		}
+	}
+
+	// tool_choice conversion
+	if tc, ok := src["tool_choice"]; ok {
+		switch v := tc.(type) {
+		case string:
+			switch v {
+			case "auto":
+				dst["tool_choice"] = map[string]any{"type": "auto"}
+			case "required":
+				dst["tool_choice"] = map[string]any{"type": "any"}
+			case "none":
+				dst["tool_choice"] = map[string]any{"type": "disabled"}
+			}
+		case map[string]any:
+			if v["type"] == "function" {
+				if fn, ok := v["function"].(map[string]any); ok {
+					if name, ok := fn["name"].(string); ok {
+						dst["tool_choice"] = map[string]any{"type": "tool", "name": name}
+					}
+				}
+			}
+		}
+	}
+
+	// instructions → system
+	if instructions, ok := src["instructions"].(string); ok && instructions != "" {
+		dst["system"] = instructions
+	}
+
+	// input → messages
+	if input, ok := src["input"].([]any); ok {
+		var messages []any
+
+		for _, item := range input {
+			im, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			itemType, _ := im["type"].(string)
+
+			switch itemType {
+			case "function_call":
+				// function_call → assistant message with tool_use content block
+				args, _ := im["arguments"].(string)
+				var input any
+				if args != "" {
+					json.Unmarshal([]byte(args), &input)
+				}
+				messages = append(messages, map[string]any{
+					"role": "assistant",
+					"content": []any{
+						map[string]any{
+							"type":  "tool_use",
+							"id":    im["call_id"],
+							"name":  im["name"],
+							"input": input,
+						},
+					},
+				})
+
+			case "function_call_output":
+				// function_call_output → user message with tool_result content block
+				messages = append(messages, map[string]any{
+					"role": "user",
+					"content": []any{
+						map[string]any{
+							"type":        "tool_result",
+							"tool_use_id": im["call_id"],
+							"content":     im["output"],
+						},
+					},
+				})
+
+			default:
+				// Regular message (has role)
+				role, _ := im["role"].(string)
+				content := im["content"]
+
+				// Map developer role to system for Anthropic
+				if role == "developer" {
+					existingSystem, _ := dst["system"].(string)
+					contentStr := flattenContent(content)
+					if existingSystem != "" {
+						dst["system"] = existingSystem + "\n\n" + contentStr
+					} else {
+						dst["system"] = contentStr
+					}
+					continue
+				}
+
+				// Convert content to Anthropic format (string or content blocks)
+				var anthropicContent any
+				if s, ok := content.(string); ok {
+					anthropicContent = s
+				} else if content != nil {
+					anthropicContent = content
+				} else {
+					anthropicContent = ""
+				}
+
+				messages = append(messages, map[string]any{
+					"role":    role,
+					"content": anthropicContent,
+				})
+			}
+		}
+
+		if len(messages) > 0 {
+			dst["messages"] = messages
+		}
+	}
+
+	out, err := json.Marshal(dst)
+	if err != nil {
+		return nil, fmt.Errorf("marshal anthropic request: %w", err)
+	}
+	return out, nil
+}
+
+// convertAnthropicResponseToResponses converts an Anthropic /v1/messages response
+// to canonical (Responses API) format.
+func convertAnthropicResponseToResponses(body []byte, statusCode int) ([]byte, error) {
+	if statusCode < 200 || statusCode >= 300 {
+		return convertAnthropicErrorToResponses(body)
+	}
+
+	var src map[string]any
+	if err := json.Unmarshal(body, &src); err != nil {
+		return nil, fmt.Errorf("unmarshal anthropic response: %w", err)
+	}
+
+	dst := map[string]any{
+		"object": "response",
+	}
+
+	if v, ok := src["id"].(string); ok {
+		dst["id"] = v
+	}
+	if v, ok := src["model"].(string); ok {
+		dst["model"] = v
+	}
+
+	// Map stop_reason to status
+	stopReason, _ := src["stop_reason"].(string)
+	switch stopReason {
+	case "end_turn":
+		dst["status"] = "completed"
+	case "max_tokens":
+		dst["status"] = "incomplete"
+	case "tool_use":
+		dst["status"] = "completed"
+	default:
+		dst["status"] = "completed"
+	}
+
+	// Convert content blocks to output
+	content, _ := src["content"].([]any)
+	var output []any
+
+	for _, block := range content {
+		b, ok := block.(map[string]any)
+		if !ok {
+			continue
+		}
+		blockType, _ := b["type"].(string)
+
+		switch blockType {
+		case "thinking":
+			// thinking → reasoning output
+			thinking, _ := b["thinking"].(string)
+			if thinking != "" {
+				output = append(output, map[string]any{
+					"type": "reasoning",
+					"summary": []any{
+						map[string]any{"type": "summary_text", "text": thinking},
+					},
+				})
+			}
+
+		case "text":
+			// text → message output
+			text, _ := b["text"].(string)
+			if text != "" {
+				output = append(output, map[string]any{
+					"type": "message",
+					"content": []any{
+						map[string]any{"type": "output_text", "text": text},
+					},
+				})
+			}
+
+		case "tool_use":
+			// tool_use → function_call output
+			id, _ := b["id"].(string)
+			name, _ := b["name"].(string)
+			input := b["input"]
+			argsBytes, _ := json.Marshal(input)
+			output = append(output, map[string]any{
+				"type":      "function_call",
+				"call_id":   id,
+				"name":      name,
+				"arguments": string(argsBytes),
+			})
+		}
+	}
+
+	if len(output) == 0 {
+		output = []any{
+			map[string]any{
+				"type": "message",
+				"content": []any{
+					map[string]any{"type": "output_text", "text": ""},
+				},
+			},
+		}
+	}
+	dst["output"] = output
+
+	// usage
+	if usage, ok := src["usage"].(map[string]any); ok {
+		dst["usage"] = map[string]any{
+			"input_tokens":  usage["input_tokens"],
+			"output_tokens": usage["output_tokens"],
+		}
+	}
+
+	return json.Marshal(dst)
+}
+
+// convertAnthropicErrorToResponses converts an Anthropic error response to Responses format.
+func convertAnthropicErrorToResponses(body []byte) ([]byte, error) {
+	var src struct {
+		Type  string `json:"type"`
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	if err := json.Unmarshal(body, &src); err != nil {
+		return json.Marshal(map[string]any{
+			"object": "response",
+			"status": "failed",
+			"error":  map[string]any{"message": string(body)},
+		})
+	}
+
+	return json.Marshal(map[string]any{
+		"object": "response",
+		"status": "failed",
+		"error": map[string]any{
+			"type":    src.Error.Type,
+			"message": src.Error.Message,
+		},
+	})
+}
+
+// responsesResponseToChat converts a canonical (Responses API) response
+// to OpenAI Chat Completions format.
+func responsesResponseToChat(body []byte, statusCode int) ([]byte, error) {
+	if statusCode < 200 || statusCode >= 300 {
+		return responsesErrorToChat(body)
+	}
+
+	var src map[string]any
+	if err := json.Unmarshal(body, &src); err != nil {
+		return nil, fmt.Errorf("unmarshal responses response: %w", err)
+	}
+
+	respID, _ := src["id"].(string)
+	model, _ := src["model"].(string)
+	status, _ := src["status"].(string)
+	output, _ := src["output"].([]any)
+	usage, _ := src["usage"].(map[string]any)
+
+	var content string
+	var toolCalls []map[string]any
+	var reasoningContent string
+
+	for _, item := range output {
+		itemMap, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		itemType, _ := itemMap["type"].(string)
+
+		switch itemType {
+		case "message":
+			if contentParts, ok := itemMap["content"].([]any); ok {
+				for _, cp := range contentParts {
+					cpMap, ok := cp.(map[string]any)
+					if !ok {
+						continue
+					}
+					if cpType, _ := cpMap["type"].(string); cpType == "output_text" {
+						if text, ok := cpMap["text"].(string); ok {
+							content += text
+						}
+					}
+				}
+			}
+
+		case "reasoning":
+			if summary, ok := itemMap["summary"].([]any); ok {
+				for _, s := range summary {
+					sMap, ok := s.(map[string]any)
+					if !ok {
+						continue
+					}
+					if sType, _ := sMap["type"].(string); sType == "summary_text" {
+						if text, ok := sMap["text"].(string); ok {
+							reasoningContent += text
+						}
+					}
+				}
+			}
+
+		case "function_call":
+			callID, _ := itemMap["call_id"].(string)
+			name, _ := itemMap["name"].(string)
+			args, _ := itemMap["arguments"].(string)
+			toolCalls = append(toolCalls, map[string]any{
+				"id":   callID,
+				"type": "function",
+				"function": map[string]any{
+					"name":      name,
+					"arguments": args,
+				},
+			})
+		}
+	}
+
+	finishReason := "stop"
+	if status == "incomplete" {
+		finishReason = "length"
+	}
+	if len(toolCalls) > 0 {
+		finishReason = "tool_calls"
+	}
+
+	message := map[string]any{
+		"role":    "assistant",
+		"content": content,
+	}
+	if reasoningContent != "" {
+		message["reasoning_content"] = reasoningContent
+	}
+	if len(toolCalls) > 0 {
+		message["tool_calls"] = toolCalls
+	}
+
+	promptTokens, _ := usage["input_tokens"].(float64)
+	completionTokens, _ := usage["output_tokens"].(float64)
+
+	chatResp := map[string]any{
+		"id":      respID,
+		"object":  "chat.completion",
+		"created": 0,
+		"model":   model,
+		"choices": []any{
+			map[string]any{
+				"index":         0,
+				"message":       message,
+				"finish_reason": finishReason,
+			},
+		},
+		"usage": map[string]any{
+			"prompt_tokens":     int(promptTokens),
+			"completion_tokens": int(completionTokens),
+			"total_tokens":      int(promptTokens + completionTokens),
+		},
+	}
+
+	return json.Marshal(chatResp)
+}
+
+// responsesErrorToChat converts a Responses API error to Chat format.
+func responsesErrorToChat(body []byte) ([]byte, error) {
+	var src map[string]any
+	if err := json.Unmarshal(body, &src); err != nil {
+		return json.Marshal(map[string]any{
+			"error": map[string]any{
+				"message": string(body),
+				"type":    "api_error",
+			},
+		})
+	}
+
+	// Check for error in Responses format
+	if errObj, ok := src["error"].(map[string]any); ok {
+		msg, _ := errObj["message"].(string)
+		errType, _ := errObj["type"].(string)
+		if errType == "" {
+			errType = "api_error"
+		}
+		return json.Marshal(map[string]any{
+			"error": map[string]any{
+				"message": msg,
+				"type":    errType,
+			},
+		})
+	}
+
+	// Check for status indicating failure
+	if status, _ := src["status"].(string); status == "failed" {
+		return json.Marshal(map[string]any{
+			"error": map[string]any{
+				"message": "request failed",
+				"type":    "api_error",
+			},
+		})
+	}
+
+	return json.Marshal(map[string]any{
+		"error": map[string]any{
+			"message": string(body),
+			"type":    "api_error",
+		},
+	})
+}
