@@ -285,19 +285,16 @@ func applyModelDefaultConfig(res *resolvedModelConfig, mc config.ModelDefaultCon
 
 // resolveModelDefaults merges model_defaults (by backend model name) with
 // candidate-level settings. Lookup order (later overrides earlier):
-//  1. global system_prompt / candidate-level defaults
+//  1. candidate-level defaults
 //  2. model_defaults["backendModel"] — generic key
 //  3. model_defaults["backendModel@clientProtocol"] — protocol-specific key
 func resolveModelDefaults(cfg config.Config, cand candidateResult, clientProtocol string) resolvedModelConfig {
 	res := resolvedModelConfig{
 		reasoningEffort:               cand.reasoningDefaultEffort,
-		systemPrompt:                  cfg.SystemPrompt,
+		systemPrompt:                  cand.systemPrompt,
 		defaultMaxTokens:              cand.defaultMaxTokens,
 		normalizeXHighReasoningEffort: cand.normalizeXHighReasoningEffort,
 		defaultTemperature:            cand.defaultTemperature,
-	}
-	if cand.systemPrompt != "" {
-		res.systemPrompt = cand.systemPrompt
 	}
 
 	// Generic key: model_defaults["backendModel"]

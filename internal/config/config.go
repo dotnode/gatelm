@@ -19,7 +19,6 @@ type Config struct {
 	TokenLog              TokenLogConfig                `yaml:"token_log"`
 	APIKeys               map[string]string             `yaml:"api_keys"`
 	ModelDefaults         map[string]ModelDefaultConfig `yaml:"model_defaults"`
-	SystemPrompt          string                        `yaml:"system_prompt"`
 	CircuitBreaker        CircuitBreakerConfig          `yaml:"circuit_breaker"`
 	Console               ConsoleConfig                 `yaml:"console"`
 	TrustedProxies        []string                      `yaml:"trusted_proxies"` // IPs or CIDRs; empty = only use RemoteAddr
@@ -98,7 +97,6 @@ func NormalizeAndValidate(cfg Config) (Config, error) {
 		return Config{}, errors.New("backends is empty")
 	}
 
-	cfg.SystemPrompt = strings.TrimSpace(cfg.SystemPrompt)
 	cfg.Console.Password = strings.TrimSpace(os.Expand(cfg.Console.Password, os.Getenv))
 	if cfg.Console.Enabled && cfg.Console.Password == "" {
 		return Config{}, errors.New("console.password is required when console.enabled=true")

@@ -95,27 +95,6 @@ backends:
 	}
 }
 
-func TestLoadConfigSystemPromptTrim(t *testing.T) {
-	path := writeTempConfig(t, `
-system_prompt: "  be concise  "
-backends:
-  - name: b1
-    url: "http://127.0.0.1:8080"
-    protocol: "openai"
-    models:
-      - name: gpt-4o
-        aliases: [claude-sonnet-4]
-`)
-
-	cfg, err := LoadConfig(path)
-	if err != nil {
-		t.Fatalf("LoadConfig() error = %v", err)
-	}
-	if cfg.SystemPrompt != "be concise" {
-		t.Fatalf("system_prompt = %q, want %q", cfg.SystemPrompt, "be concise")
-	}
-}
-
 func TestLoadConfigModelSystemPromptTrim(t *testing.T) {
 	path := writeTempConfig(t, `
 backends:

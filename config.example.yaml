@@ -15,11 +15,6 @@ debug: false
 # 超限时返回 503
 max_concurrent_requests: 0
 
-# ----- 全局 System Prompt（可选） -----
-# 注入到所有经过协议转换或直连透传的请求中
-# 模型级 system_prompt 优先于此全局配置
-# system_prompt: "你是一个专业的技术助手。"
-
 # ----- 模型默认参数 -----
 # 按后端模型名配置，优先级高于 backends[].models[] 中的同名字段
 # 支持 "模型名@客户端协议" 格式实现协议维度覆盖
@@ -36,7 +31,7 @@ model_defaults:
     # 客户端未指定 temperature 时注入此值（范围 0~2）
     default_temperature: 0.6
 
-    # 模型级 system prompt（优先于全局 system_prompt）
+    # 模型级 system prompt
     # 设为 "none" 可显式阻止注入（区别于空字符串 = 未设置）
     # system_prompt: "你是工程助手，先给结论再给说明。"
 

@@ -262,15 +262,11 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
               </div>
 
               <div v-if="activeConfigSection === 'basic'" class="console-card console-fade-up console-delay-1 p-4">
-                <div class="grid gap-3 md:grid-cols-2">
-                  <label class="console-field"><span class="console-field-label">监听地址</span><input v-model="config.listen" class="console-input" /></label>
-                  <div class="rounded-[4px] border px-3 py-2 text-[12px] leading-5" style="border-color: var(--border-subtle); background: var(--bg-soft); color: var(--text-secondary);">已移除全局兜底层；当前仅支持 model_defaults 与模型局部覆盖，若两层都未设置则不下发 reasoning_effort。</div>
-                </div>
+                <label class="console-field"><span class="console-field-label">监听地址</span><input v-model="config.listen" class="console-input" /></label>
                 <div class="mt-3 grid gap-3 md:grid-cols-2">
                   <label class="console-field"><span class="console-field-label">启用 Admin 密码</span><select v-model="config.console.enabled" class="console-input"><option :value="false">关闭</option><option :value="true">开启</option></select></label>
                   <label class="console-field"><span class="console-field-label">Admin 密码</span><input v-model="config.console.password" type="password" class="console-input" /></label>
                 </div>
-                <label class="console-field mt-3"><span class="console-field-label">全局 System Prompt</span><textarea v-model="config.system_prompt" rows="4" class="console-input console-textarea"></textarea></label>
               </div>
 
               <div v-else-if="activeConfigSection === 'defaults'" class="console-card console-fade-up console-delay-2 p-4">

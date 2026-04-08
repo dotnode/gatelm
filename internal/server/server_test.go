@@ -639,7 +639,6 @@ func TestSystemPromptInjectionForOpenAIChat(t *testing.T) {
 	defer backend.Close()
 
 	cfg := config.Config{
-		SystemPrompt: "Global style",
 		Backends: []config.Backend{{
 			Name:     "test",
 			URL:      backend.URL,
@@ -687,7 +686,9 @@ func TestSystemPromptInjectionForOpenAIResponses(t *testing.T) {
 	defer backend.Close()
 
 	cfg := config.Config{
-		SystemPrompt: "Global style",
+		ModelDefaults: map[string]config.ModelDefaultConfig{
+			"gpt-5": {SystemPrompt: "Default style"},
+		},
 		Backends: []config.Backend{{
 			Name:     "responses",
 			URL:      backend.URL,
@@ -718,8 +719,8 @@ func TestSystemPromptInjectionForOpenAIResponses(t *testing.T) {
 	if !bytes.Contains(receivedBody, []byte(`"role":"developer"`)) {
 		t.Fatalf("expected developer role in upstream request, got: %s", receivedBody)
 	}
-	if !bytes.Contains(receivedBody, []byte(`"content":"Global style\n\nUser context"`)) {
-		t.Fatalf("expected merged global system prompt in upstream request, got: %s", receivedBody)
+	if !bytes.Contains(receivedBody, []byte(`"content":"Default style\n\nUser context"`)) {
+		t.Fatalf("expected merged model_defaults system prompt in upstream request, got: %s", receivedBody)
 	}
 }
 
@@ -2181,7 +2182,6 @@ func TestDefaultTemperatureFromModelDefaults(t *testing.T) {
 
 func TestResolveModelDefaultsProtocolKey(t *testing.T) {
 	cfg := config.Config{
-		SystemPrompt: "global prompt",
 		ModelDefaults: map[string]config.ModelDefaultConfig{
 			"gpt-5": {
 				SystemPrompt: "generic prompt",
@@ -2237,7 +2237,11 @@ func TestDirectOpenAIClientSystemPromptInjection(t *testing.T) {
 	defer backend.Close()
 
 	cfg := config.Config{
-		SystemPrompt: "Global style",
+		ModelDefaults: map[string]config.ModelDefaultConfig{
+			"gpt-5": {
+				SystemPrompt: "Default style",
+			},
+		},
 		Backends: []config.Backend{{
 			Name:     "test",
 			URL:      backend.URL,
@@ -2253,7 +2257,6 @@ func TestDirectOpenAIClientSystemPromptInjection(t *testing.T) {
 	proxyServer := httptest.NewServer(http.HandlerFunc(srv.Handle))
 	defer proxyServer.Close()
 
-	// OpenAI client direct request (no protocol conversion)
 	body := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":"hi"}]}`)
 	req, _ := http.NewRequest("POST", proxyServer.URL+"/v1/chat/completions", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -2269,8 +2272,8 @@ func TestDirectOpenAIClientSystemPromptInjection(t *testing.T) {
 	if !bytes.Contains(receivedBody, []byte(`"role":"system"`)) {
 		t.Fatalf("expected system role in upstream request, got: %s", receivedBody)
 	}
-	if !bytes.Contains(receivedBody, []byte(`"content":"Global style"`)) {
-		t.Fatalf("expected global system prompt injected, got: %s", receivedBody)
+	if !bytes.Contains(receivedBody, []byte(`"content":"Default style"`)) {
+		t.Fatalf("expected model_defaults system prompt injected, got: %s", receivedBody)
 	}
 }
 
@@ -2285,7 +2288,6 @@ func TestDirectOpenAIClientSystemPromptNone(t *testing.T) {
 	defer backend.Close()
 
 	cfg := config.Config{
-		SystemPrompt: "Global style",
 		ModelDefaults: map[string]config.ModelDefaultConfig{
 			"gpt-5@openai": {
 				SystemPrompt: "none", // explicitly disable for OpenAI clients

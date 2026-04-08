@@ -47,7 +47,6 @@ type consoleConfigPayload struct {
 	TokenLog              config.TokenLogConfig                `json:"token_log" yaml:"token_log"`
 	APIKeys               map[string]string                    `json:"api_keys" yaml:"api_keys"`
 	ModelDefaults         map[string]config.ModelDefaultConfig `json:"model_defaults" yaml:"model_defaults"`
-	SystemPrompt          string                               `json:"system_prompt" yaml:"system_prompt"`
 	CircuitBreaker        config.CircuitBreakerConfig          `json:"circuit_breaker" yaml:"circuit_breaker"`
 	Console               config.ConsoleConfig                 `json:"console" yaml:"console"`
 	TrustedProxies        []string                             `json:"trusted_proxies" yaml:"trusted_proxies"`
@@ -159,7 +158,6 @@ func (s *Server) handleConsoleConfigGet(w http.ResponseWriter, r *http.Request) 
 		TokenLog:              snap.cfg.TokenLog,
 		APIKeys:               snap.cfg.APIKeys,
 		ModelDefaults:         snap.cfg.ModelDefaults,
-		SystemPrompt:          snap.cfg.SystemPrompt,
 		CircuitBreaker:        snap.cfg.CircuitBreaker,
 		Console:               snap.cfg.Console,
 		TrustedProxies:        snap.cfg.TrustedProxies,
@@ -185,7 +183,6 @@ func (s *Server) handleConsoleConfigPut(w http.ResponseWriter, r *http.Request) 
 		TokenLog:              payload.TokenLog,
 		APIKeys:               payload.APIKeys,
 		ModelDefaults:         payload.ModelDefaults,
-		SystemPrompt:          payload.SystemPrompt,
 		CircuitBreaker:        payload.CircuitBreaker,
 		Console:               payload.Console,
 		TrustedProxies:        payload.TrustedProxies,
@@ -241,7 +238,6 @@ var consoleConfigYAMLFields = []struct {
 	{key: "token_log", value: func(cfg config.Config) any { return cfg.TokenLog }},
 	{key: "api_keys", value: func(cfg config.Config) any { return cfg.APIKeys }},
 	{key: "model_defaults", value: func(cfg config.Config) any { return cfg.ModelDefaults }, merge: mergeMappingEntriesNode},
-	{key: "system_prompt", value: func(cfg config.Config) any { return cfg.SystemPrompt }},
 	{key: "circuit_breaker", value: func(cfg config.Config) any { return cfg.CircuitBreaker }},
 	{key: "console", value: func(cfg config.Config) any { return cfg.Console }},
 	{key: "trusted_proxies", value: func(cfg config.Config) any { return cfg.TrustedProxies }},
