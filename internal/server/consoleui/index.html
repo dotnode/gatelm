@@ -77,6 +77,13 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .console-nav-active { background: var(--bg-card); border-color: var(--border-subtle); color: var(--text-primary); }
 .console-nav-inactive { color: var(--text-secondary); }
 .console-nav-inactive:hover { background: rgba(255, 255, 255, 0.65); border-color: var(--border-subtle); color: var(--text-primary); }
+.console-subtab-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.125rem; padding: 0.125rem; border: 1px solid rgba(228, 228, 231, 0.7); border-radius: 0.85rem; background: rgba(250, 250, 250, 0.65); }
+.console-subtab-button { position: relative; display: inline-flex; align-items: center; justify-content: center; min-height: 38px; padding: 0.55rem 0.8rem; border: 1px solid transparent; border-radius: 0.72rem; font-size: 0.82rem; font-weight: 600; letter-spacing: -0.01em; transition: color var(--transition-base), background-color var(--transition-base), border-color var(--transition-base), box-shadow var(--transition-base); }
+.console-subtab-active { background: rgba(255, 255, 255, 0.82); border-color: rgba(255, 255, 255, 0.9); color: var(--text-primary); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03); }
+.console-subtab-active::after { content: ""; position: absolute; left: 1.15rem; right: 1.15rem; bottom: 0.4rem; height: 1px; border-radius: 999px; background: rgba(0, 112, 243, 0.75); }
+.console-subtab-inactive { background: transparent; color: var(--text-muted); }
+.console-subtab-inactive:hover { background: rgba(255,255,255,0.42); color: var(--text-primary); }
+@media (max-width: 767px) { .console-subtab-list { grid-template-columns: 1fr; } }
 .console-card { position: relative; background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-card); box-shadow: var(--shadow-card); transition: border-color var(--transition-base), box-shadow var(--transition-base); }
 .console-card:hover { border-color: var(--border-default); }
 .console-badge-healthy, .console-badge-tripped, .console-badge-probing { border-radius: 999px; border-style: solid; font-weight: 600; }
@@ -108,15 +115,28 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .console-close-icon::after { transform: rotate(-45deg); }
 .console-mobile-backdrop { position: fixed; inset: 0; z-index: 40; background: rgba(6, 10, 19, 0.6); backdrop-filter: blur(2px); }
 .console-mobile-drawer { position: fixed; inset: 0 auto 0 0; z-index: 50; display: flex; width: min(20rem, calc(100vw - 2rem)); flex-direction: column; }
-.console-drawer-enter-active, .console-drawer-leave-active, .console-drawer-fade-enter-active, .console-drawer-fade-leave-active, .console-tab-fade-enter-active, .console-tab-fade-leave-active, .console-collapse-enter-active, .console-collapse-leave-active, .console-toast-enter-active, .console-toast-leave-active { transition: all 150ms ease; }
+.console-drawer-enter-active, .console-drawer-leave-active, .console-drawer-fade-enter-active, .console-drawer-fade-leave-active, .console-tab-fade-enter-active, .console-tab-fade-leave-active, .console-toast-enter-active, .console-toast-leave-active, .console-editor-drawer-enter-active, .console-editor-drawer-leave-active, .console-editor-backdrop-enter-active, .console-editor-backdrop-leave-active { transition: all 150ms ease; }
 .console-drawer-enter-from, .console-drawer-leave-to { transform: translateX(-100%); }
-.console-drawer-fade-enter-from, .console-drawer-fade-leave-to, .console-tab-fade-enter-from, .console-tab-fade-leave-to, .console-toast-enter-from, .console-toast-leave-to { opacity: 0; }
-.console-collapse-enter-from, .console-collapse-leave-to { opacity: 0; transform: translateY(-6px); max-height: 0; }
-.console-collapse-enter-to, .console-collapse-leave-from { opacity: 1; transform: translateY(0); max-height: 2400px; }
-.console-collapsible-body { overflow: hidden; }
-.console-collapse-toggle { width: 2rem; min-width: 2rem; padding: 0; }
-.console-chevron { display: inline-block; width: 8px; height: 8px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); transition: transform var(--transition-base); }
-.console-chevron-collapsed { transform: rotate(-45deg); }
+.console-editor-drawer-enter-from, .console-editor-drawer-leave-to { transform: translateX(100%); }
+.console-drawer-fade-enter-from, .console-drawer-fade-leave-to, .console-tab-fade-enter-from, .console-tab-fade-leave-to, .console-toast-enter-from, .console-toast-leave-to, .console-editor-backdrop-enter-from, .console-editor-backdrop-leave-to { opacity: 0; }
+.console-editor-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(6, 10, 19, 0.44); backdrop-filter: blur(2px); }
+.console-editor-drawer { position: fixed; inset: 0 0 0 auto; z-index: 70; display: flex; width: min(48rem, 100vw); flex-direction: column; background: var(--bg-card); border-left: 1px solid var(--border-subtle); box-shadow: -12px 0 48px rgba(15, 23, 42, 0.12); }
+.console-editor-drawer-body { flex: 1; overflow-y: auto; padding: 1rem; }
+.console-summary-grid { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.console-summary-item { border: 1px solid var(--border-subtle); border-radius: 0.5rem; padding: 0.75rem; background: var(--bg-elevated); }
+.console-inline-code { display: inline-flex; align-items: center; border-radius: 999px; border: 1px solid var(--border-subtle); background: var(--bg-card); padding: 0.125rem 0.5rem; font-family: var(--mono-font); font-size: 11px; line-height: 1.5; color: var(--text-secondary); }
+.console-kv-list { display: grid; gap: 0.5rem; }
+.console-kv-item { display: grid; gap: 0.5rem; grid-template-columns: minmax(90px, 120px) minmax(0, 1fr); align-items: start; padding: 0.625rem 0.75rem; border: 1px solid var(--border-subtle); border-radius: 0.5rem; background: var(--bg-elevated); }
+.console-backend-meta { display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.console-backend-meta-item { min-width: 0; padding: 0.625rem 0.75rem; border: 1px solid var(--border-subtle); border-radius: 0.5rem; background: var(--bg-elevated); }
+.console-backend-meta-item-wide { grid-column: span 2; }
+.console-backend-models { overflow: hidden; border: 1px solid var(--border-subtle); border-radius: 0.75rem; background: var(--bg-elevated); }
+.console-model-row { padding: 0.75rem; }
+.console-model-row + .console-model-row { border-top: 1px solid var(--border-dim); }
+.console-model-statline { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.75rem; font-size: 11px; line-height: 1.45; color: var(--text-secondary); }
+.console-text-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.console-line-clamp-1 { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 1; }
+@media (max-width: 767px) { .console-backend-meta-item-wide { grid-column: span 1; } }
 .console-unsaved-dot { display: inline-block; width: 8px; height: 8px; border-radius: 999px; background: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.16); }
 .console-toast-stack { position: fixed; right: 1rem; bottom: 1rem; z-index: 80; display: flex; width: min(22rem, calc(100vw - 2rem)); flex-direction: column; gap: 0.75rem; }
 .console-toast-move { transition: transform 150ms ease; }
@@ -225,13 +245,23 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
             <!-- Config -->
             <section v-if="activeTab === 'config' && config" key="config" class="space-y-4">
               <div class="console-fade-up flex flex-wrap items-center justify-between gap-3">
-                <h3 class="console-display text-base font-semibold">代理基础配置</h3>
+                <div>
+                  <h3 class="console-display text-base font-semibold">{{ configSections.find(function(section){ return section.key === activeConfigSection })?.label || '配置管理' }}</h3>
+                  <div class="mt-1 text-[12px] text-[var(--text-secondary)]">将配置区拆成 tabs，减少滚动长度。</div>
+                </div>
                 <div class="flex flex-wrap gap-2">
-                  <button class="console-button" @click="addBackend">新增 Backend</button>
+                  <button v-if="activeConfigSection === 'backends'" class="console-button" @click="addBackend">新增 Backend</button>
                   <button class="console-button console-btn-primary relative" @click="saveConfig">保存配置 <span v-if="hasUnsavedChanges" class="console-unsaved-dot"></span></button>
                 </div>
               </div>
-              <div class="console-card console-fade-up console-delay-1 p-4">
+
+              <div class="console-card console-fade-up console-delay-1 p-3">
+                <div class="console-subtab-list">
+                  <button v-for="section in configSections" :key="section.key" class="console-subtab-button" :class="activeConfigSection === section.key ? 'console-subtab-active' : 'console-subtab-inactive'" @click="setActiveConfigSection(section.key)">{{ section.label }}</button>
+                </div>
+              </div>
+
+              <div v-if="activeConfigSection === 'basic'" class="console-card console-fade-up console-delay-1 p-4">
                 <div class="grid gap-3 md:grid-cols-2">
                   <label class="console-field"><span class="console-field-label">监听地址</span><input v-model="config.listen" class="console-input" /></label>
                   <div class="rounded-[4px] border px-3 py-2 text-[12px] leading-5" style="border-color: var(--border-subtle); background: var(--bg-soft); color: var(--text-secondary);">已移除全局兜底层；当前仅支持 model_defaults 与模型局部覆盖，若两层都未设置则不下发 reasoning_effort。</div>
@@ -243,8 +273,7 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
                 <label class="console-field mt-3"><span class="console-field-label">全局 System Prompt</span><textarea v-model="config.system_prompt" rows="4" class="console-input console-textarea"></textarea></label>
               </div>
 
-              <!-- Model defaults -->
-              <div class="console-card console-fade-up console-delay-2 p-4">
+              <div v-else-if="activeConfigSection === 'defaults'" class="console-card console-fade-up console-delay-2 p-4">
                 <div class="flex flex-wrap items-start justify-between gap-3 pb-3" style="border-bottom: 1px solid var(--border-subtle);">
                   <div>
                     <h3 class="console-display text-base font-semibold">按后端模型名配置默认参数</h3>
@@ -289,44 +318,115 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
                 </div>
               </div>
 
-              <!-- Backends -->
-              <div v-for="(backend, backendIndex) in config.backends" :key="backendIndex" class="console-card console-fade-up p-4" :style="{ animationDelay: (backendIndex + 3) * 0.05 + 's' }">
-                <div class="flex flex-wrap items-start justify-between gap-3 pb-3" :class="isBackendCollapsed(backendIndex) ? '' : 'mb-4'" style="border-bottom: 1px solid var(--border-subtle);">
-                  <div class="flex items-center gap-3">
-                    <button class="console-button console-collapse-toggle" @click="toggleBackendCollapse(backendIndex)">
-                      <span class="console-chevron" :class="{ 'console-chevron-collapsed': isBackendCollapsed(backendIndex) }"></span>
-                    </button>
-                    <div>
-                      <h3 class="console-display text-base font-semibold">{{ backend.name || ('Backend ' + (backendIndex + 1)) }}</h3>
-                      <div class="mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold" style="border-color: #bfdbfe; color: var(--text-accent); background: var(--bg-accent);">{{ backend.protocol || 'openai' }}</div>
+              <div v-else-if="activeConfigSection === 'backends'" class="space-y-4">
+                <div v-for="(backend, backendIndex) in config.backends" :key="backendIndex" class="console-card console-fade-up p-4" :style="{ animationDelay: (backendIndex + 3) * 0.05 + 's' }">
+                  <div class="flex flex-wrap items-start justify-between gap-3">
+                    <div class="min-w-0 flex-1">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <h3 class="console-display text-base font-semibold">{{ backend.name || ('Backend ' + (backendIndex + 1)) }}</h3>
+                        <div class="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold" style="border-color: #bfdbfe; color: var(--text-accent); background: var(--bg-accent);">{{ backend.protocol || 'openai' }}</div>
+                        <span class="console-inline-code">{{ (backend.models || []).length }} models</span>
+                      </div>
+                      <div class="mt-2 console-backend-meta">
+                        <div class="console-backend-meta-item console-backend-meta-item-wide">
+                          <div class="console-field-label">URL</div>
+                          <div class="console-mono text-[13px] text-[var(--text-primary)] console-line-clamp-1" :title="backend.url || '-'">{{ backend.url || '-' }}</div>
+                        </div>
+                        <div class="console-backend-meta-item">
+                          <div class="console-field-label">前缀</div>
+                          <div class="console-mono text-[13px] text-[var(--text-primary)] console-text-truncate" :title="backend.path_prefix || '-'">{{ backend.path_prefix || '-' }}</div>
+                        </div>
+                        <div class="console-backend-meta-item">
+                          <div class="console-field-label">P / W</div>
+                          <div class="console-mono text-[13px] text-[var(--text-primary)]">{{ backend.priority ?? 0 }} / {{ backend.weight ?? 1 }}</div>
+                        </div>
+                        <div class="console-backend-meta-item">
+                          <div class="console-field-label">Headers</div>
+                          <div class="text-[13px] text-[var(--text-primary)]">{{ Object.keys(backend.headers || {}).length === 0 ? '无' : Object.keys(backend.headers || {}).join(', ') }}</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="flex shrink-0 flex-wrap gap-2">
+                      <button class="console-button" @click="startEditBackend(backendIndex)">编辑</button>
+                      <button class="console-button" style="border-color: #fecaca; background: var(--bg-danger-soft); color: var(--text-danger);" @click="removeBackend(backendIndex)">删除 Backend</button>
                     </div>
                   </div>
-                  <button class="console-button" style="border-color: #fecaca; background: var(--bg-danger-soft); color: var(--text-danger);" @click="removeBackend(backendIndex)">删除 Backend</button>
+                  <div class="mt-3 console-backend-models">
+                    <div class="flex items-center justify-between gap-3 px-3 py-2" style="border-bottom: 1px solid var(--border-subtle); background: rgba(255,255,255,0.35);">
+                      <div>
+                        <div class="text-[13px] font-medium text-[var(--text-primary)]">Models</div>
+                        <div class="mt-0.5 text-[12px] text-[var(--text-secondary)]">默认只读浏览；结构修改在编辑抽屉中完成。</div>
+                      </div>
+                      <div class="text-[11px] text-[var(--text-muted)]">名称 / 别名 / Tokens / Reasoning / Prompt</div>
+                    </div>
+                    <div v-if="!backend.models || backend.models.length === 0" class="console-empty-state !min-h-[88px] !py-5"><div class="console-empty-icon">-</div><div>暂无 Model</div></div>
+                    <div v-else>
+                      <div v-for="(model, modelIndex) in backend.models" :key="modelIndex" class="console-model-row">
+                        <div class="flex flex-wrap items-start justify-between gap-3">
+                          <div class="min-w-0 flex-1">
+                            <div class="flex flex-wrap items-center gap-2">
+                              <div class="console-mono text-[13px] font-semibold text-[var(--text-primary)]">{{ model.name || ('Model ' + (modelIndex + 1)) }}</div>
+                              <span v-if="model.default_max_tokens" class="console-inline-code">{{ model.default_max_tokens }} tok</span>
+                              <span class="console-inline-code">{{ resolveEffectiveReasoning(model.name, model.reasoning_default_effort).value }}</span>
+                            </div>
+                            <div class="mt-1 flex flex-wrap gap-1.5" v-if="model.aliases && model.aliases.length > 0">
+                              <span v-for="alias in model.aliases" :key="alias" class="console-inline-code">{{ alias }}</span>
+                            </div>
+                            <div v-else class="mt-1 text-[12px] text-[var(--text-muted)]">无别名</div>
+                          </div>
+                          <div class="max-w-[260px] text-right text-[12px] leading-5 text-[var(--text-secondary)]">
+                            <div class="console-line-clamp-1" :title="resolveEffectiveReasoning(model.name, model.reasoning_default_effort).source">{{ resolveEffectiveReasoning(model.name, model.reasoning_default_effort).source }}</div>
+                          </div>
+                        </div>
+                        <div class="mt-2 console-model-statline">
+                          <span>Prompt：</span>
+                          <span class="console-line-clamp-1" style="max-width: 100%;" :title="model.system_prompt || '-'">{{ model.system_prompt || '-' }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <transition name="console-collapse">
-                  <div v-show="!isBackendCollapsed(backendIndex)" class="console-collapsible-body">
+              </div>
+
+              <transition name="console-editor-backdrop">
+                <div v-if="editingBackendDraft" class="console-editor-backdrop" @click="cancelEditBackend"></div>
+              </transition>
+              <transition name="console-editor-drawer">
+                <aside v-if="editingBackendDraft" class="console-editor-drawer">
+                  <div class="flex items-center justify-between gap-3 px-4 py-4" style="border-bottom: 1px solid var(--border-subtle);">
+                    <div>
+                      <div class="console-display text-base font-semibold">编辑 Backend</div>
+                      <div class="mt-1 text-[12px] leading-5 text-[var(--text-secondary)]">{{ editingBackendDraft.name || (editingBackendIndex !== null ? ('Backend ' + (editingBackendIndex + 1)) : '未命名 Backend') }}</div>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                      <button class="console-button console-btn-primary" @click="saveBackendDraft">应用修改</button>
+                      <button class="console-button" @click="cancelEditBackend">取消编辑</button>
+                    </div>
+                  </div>
+                  <div class="console-editor-drawer-body">
+                    <div class="mb-3 rounded-[4px] border px-3 py-2 text-[12px] leading-5" style="border-color: #c7d2fe; background: var(--bg-accent); color: var(--text-accent);">编辑中的输入不会写入后端；只有点击“应用修改”后进入待保存配置，再点击“保存配置”才会真正提交。</div>
                     <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                      <label class="console-field"><span class="console-field-label">名称</span><input v-model="backend.name" class="console-input" /></label>
-                      <label class="console-field"><span class="console-field-label">URL</span><input v-model="backend.url" class="console-input console-mono" /></label>
-                      <label class="console-field"><span class="console-field-label">协议</span><input v-model="backend.protocol" class="console-input console-mono" /></label>
-                      <label class="console-field"><span class="console-field-label">优先级</span><input v-model.number="backend.priority" type="number" class="console-input console-mono" /></label>
-                      <label class="console-field"><span class="console-field-label">权重</span><input v-model.number="backend.weight" type="number" class="console-input console-mono" /></label>
-                      <label class="console-field"><span class="console-field-label">前缀</span><input v-model="backend.path_prefix" class="console-input console-mono" /></label>
+                      <label class="console-field"><span class="console-field-label">名称</span><input v-model="editingBackendDraft.name" class="console-input" /></label>
+                      <label class="console-field"><span class="console-field-label">URL</span><input v-model="editingBackendDraft.url" class="console-input console-mono" /></label>
+                      <label class="console-field"><span class="console-field-label">协议</span><input v-model="editingBackendDraft.protocol" class="console-input console-mono" /></label>
+                      <label class="console-field"><span class="console-field-label">优先级</span><input v-model.number="editingBackendDraft.priority" type="number" class="console-input console-mono" /></label>
+                      <label class="console-field"><span class="console-field-label">权重</span><input v-model.number="editingBackendDraft.weight" type="number" class="console-input console-mono" /></label>
+                      <label class="console-field"><span class="console-field-label">前缀</span><input v-model="editingBackendDraft.path_prefix" class="console-input console-mono" /></label>
                     </div>
                     <label class="console-field mt-3"><span class="console-field-label">Header(JSON)</span>
-                      <textarea :value="JSON.stringify(backend.headers || {}, null, 2)" rows="4" class="console-input console-textarea console-mono" @change="backend.headers = JSON.parse($event.target.value || '{}')"></textarea>
+                      <textarea :value="JSON.stringify(editingBackendDraft.headers || {}, null, 2)" rows="4" class="console-input console-textarea console-mono" @change="editingBackendDraft.headers = JSON.parse($event.target.value || '{}')"></textarea>
                     </label>
                     <div class="mt-4 flex items-center justify-between gap-3 pt-3" style="border-top: 1px solid var(--border-subtle);">
                       <div>
                         <div class="text-[13px] font-medium">Models</div>
                         <div class="mt-0.5 text-[12px] text-[var(--text-secondary)]">维护模型名、别名、max_tokens 与局部推理强度。</div>
                       </div>
-                      <button class="console-button" @click="addModel(backendIndex)">新增 Model</button>
+                      <button class="console-button" @click="addDraftModel">新增 Model</button>
                     </div>
-                    <div v-for="(model, modelIndex) in backend.models" :key="modelIndex" class="mt-3 rounded-[6px] border p-4" style="border-color: var(--border-subtle); background: var(--bg-elevated);">
+                    <div v-for="(model, modelIndex) in editingBackendDraft.models" :key="modelIndex" class="mt-3 rounded-[6px] border p-4" style="border-color: var(--border-subtle); background: var(--bg-elevated);">
                       <div class="mb-3 flex items-center justify-between gap-3 pb-3" style="border-bottom: 1px solid var(--border-subtle);">
                         <div class="text-[13px] font-medium">{{ model.name || ('Model ' + (modelIndex + 1)) }}</div>
-                        <button class="console-button px-2 py-1 text-xs" style="border-color: #fecaca; background: var(--bg-danger-soft); color: var(--text-danger);" @click="removeModel(backendIndex, modelIndex)">删除 Model</button>
+                        <button class="console-button px-2 py-1 text-xs" style="border-color: #fecaca; background: var(--bg-danger-soft); color: var(--text-danger);" @click="removeDraftModel(modelIndex)">删除 Model</button>
                       </div>
                       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                         <label class="console-field"><span class="console-field-label">模型名</span><input v-model="model.name" class="console-input console-mono" /></label>
@@ -334,7 +434,7 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
                         <label class="console-field"><span class="console-field-label">默认 max_tokens</span><input v-model.number="model.default_max_tokens" type="number" class="console-input console-mono" /></label>
                         <label class="console-field"><span class="console-field-label">局部覆盖推理强度</span>
                           <select v-model="model.reasoning_default_effort" class="console-input">
-                            <option v-for="option in reasoningOverrideOptions" :key="backendIndex+'-'+modelIndex+'-'+(option.value||'inherit')" :value="option.value">{{ option.label }}</option>
+                            <option v-for="option in reasoningOverrideOptions" :key="(editingBackendIndex ?? 'draft')+'-'+modelIndex+'-'+(option.value||'inherit')" :value="option.value">{{ option.label }}</option>
                           </select>
                         </label>
                       </div>
@@ -345,8 +445,8 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
                       <label class="console-field mt-3"><span class="console-field-label">System Prompt</span><textarea v-model="model.system_prompt" rows="3" class="console-input console-textarea"></textarea></label>
                     </div>
                   </div>
-                </transition>
-              </div>
+                </aside>
+              </transition>
             </section>
 
             <!-- Status -->
@@ -534,6 +634,11 @@ const tabs = [
   { key: 'logs', label: '日志统计', title: '日志统计' },
   { key: 'test', label: '在线测试', title: '在线测试' },
 ]
+const configSections = [
+  { key: 'basic', label: '代理基础配置' },
+  { key: 'defaults', label: '模型默认参数' },
+  { key: 'backends', label: '后端列表' },
+]
 
 createApp({
   setup() {
@@ -546,11 +651,13 @@ createApp({
     const testResult = ref(null)
     const configSnapshot = ref('')
     const toasts = ref([])
-    const collapsedBackends = reactive(new Set())
     const logFilters = reactive({ backend: '', clientKey: '', errorCategory: '', limit: '50' })
     const logPage = ref(1)
     const testForm = reactive({ backend: '', model: '', path: '/v1/chat/completions', prompt: 'ping' })
     const auth = reactive({ enabled: false, authenticated: false, password: '' })
+    const editingBackendIndex = ref(null)
+    const editingBackendDraft = ref(null)
+    const activeConfigSection = ref('basic')
 
     const backendOptions = computed(() => config.value?.backends ?? [])
     const hasUnsavedChanges = computed(() => config.value ? JSON.stringify(config.value) !== configSnapshot.value : false)
@@ -612,8 +719,32 @@ createApp({
     }
 
     function setActiveTab(tab) { activeTab.value = tab; window.location.hash = tab; mobileMenuOpen.value = false }
-    function toggleBackendCollapse(i) { collapsedBackends.has(i) ? collapsedBackends.delete(i) : collapsedBackends.add(i) }
-    function isBackendCollapsed(i) { return collapsedBackends.has(i) }
+    function setActiveConfigSection(section) { activeConfigSection.value = section }
+    function startEditBackend(i) {
+      if (!config.value?.backends?.[i]) return
+      editingBackendIndex.value = i
+      editingBackendDraft.value = JSON.parse(JSON.stringify(config.value.backends[i]))
+    }
+    function cancelEditBackend() {
+      editingBackendIndex.value = null
+      editingBackendDraft.value = null
+    }
+    function saveBackendDraft() {
+      if (!config.value || editingBackendIndex.value === null || !editingBackendDraft.value) return
+      config.value.backends[editingBackendIndex.value] = JSON.parse(JSON.stringify(editingBackendDraft.value))
+      cancelEditBackend()
+      showToast('Backend 修改已加入待保存配置，点击“保存配置”后才会写入后端', 'success')
+    }
+    function addDraftModel() {
+      if (!editingBackendDraft.value) return
+      if (!Array.isArray(editingBackendDraft.value.models)) editingBackendDraft.value.models = []
+      editingBackendDraft.value.models.push({ name: '', aliases: [], reasoning_default_effort: '', system_prompt: '' })
+    }
+    function removeDraftModel(mi) {
+      if (!editingBackendDraft.value?.models?.[mi]) return
+      if (!confirm('确定删除 ' + (editingBackendDraft.value.models[mi]?.name || ('Model ' + (mi + 1))) + '？')) return
+      editingBackendDraft.value.models.splice(mi, 1)
+    }
     function displayClientModel(item) { return item.request_model || '-' }
     function displayBackendModel(item) { return item.forwarded_model || item.response_model || '-' }
     function displayProtocol(item) { return item.client_protocol || '-' }
@@ -639,7 +770,7 @@ createApp({
       catch (e) { showToast(String(e), 'error') } finally { loading.value = false }
     }
     async function logout() {
-      try { await api.logout(); auth.authenticated = false; config.value = null; status.value = null; logs.value = null; testResult.value = null; configSnapshot.value = ''; mobileMenuOpen.value = false; showToast('已退出登录', 'info') }
+      try { await api.logout(); auth.authenticated = false; config.value = null; status.value = null; logs.value = null; testResult.value = null; configSnapshot.value = ''; mobileMenuOpen.value = false; editingBackendIndex.value = null; editingBackendDraft.value = null; showToast('已退出登录', 'info') }
       catch (e) { showToast(String(e), 'error') }
     }
     async function loadConfig() {
@@ -656,7 +787,7 @@ createApp({
         b.protocol = b.protocol || 'openai'
         b.models.forEach(m => { if (!Array.isArray(m.aliases)) m.aliases = []; m.reasoning_default_effort = normalizeReasoningOverride(m.reasoning_default_effort); m.system_prompt = m.system_prompt ?? ''; m.name = m.name ?? '' })
       }
-      collapsedBackends.clear(); setConfigSnapshot()
+      setConfigSnapshot(); cancelEditBackend()
       if (!testForm.backend && config.value.backends.length > 0) { testForm.backend = config.value.backends[0].name; testForm.model = config.value.backends[0].models[0]?.name ?? '' }
     }
     async function loadStatus() { status.value = await api.getStatus() }
@@ -697,13 +828,9 @@ createApp({
     function removeBackend(i) {
       if (!confirm('确定删除 ' + (config.value?.backends[i]?.name || ('Backend ' + (i + 1))) + '？')) return
       config.value?.backends.splice(i, 1)
-      const u = new Set(); collapsedBackends.forEach(v => { if (v < i) u.add(v); if (v > i) u.add(v - 1) }); collapsedBackends.clear(); u.forEach(v => collapsedBackends.add(v))
+      if (editingBackendIndex.value === i) cancelEditBackend()
+      else if (editingBackendIndex.value !== null && editingBackendIndex.value > i) editingBackendIndex.value -= 1
       showToast('Backend 已删除', 'success')
-    }
-    function addModel(bi) { config.value?.backends[bi].models.push({ name: '', aliases: [], reasoning_default_effort: '', system_prompt: '' }); showToast('已新增 Model 草稿', 'info') }
-    function removeModel(bi, mi) {
-      if (!confirm('确定删除 ' + (config.value?.backends[bi]?.models[mi]?.name || ('Model ' + (mi + 1))) + '？')) return
-      config.value?.backends[bi].models.splice(mi, 1); showToast('Model 已删除', 'success')
     }
 
     function onHashChange() { activeTab.value = getTabFromHash() }
@@ -712,14 +839,16 @@ createApp({
 
     return {
       activeTab, loading, mobileMenuOpen, config, status, logs, testResult, toasts, logFilters, logPage, testForm, auth,
+      activeConfigSection,
       backendOptions, hasUnsavedChanges, activeTabMeta, modelDefaultEntries, logPagination, logRangeText,
-      tabs, reasoningOverrideOptions,
-      removeToast, showToast, setActiveTab, toggleBackendCollapse, isBackendCollapsed,
+      tabs, configSections, reasoningOverrideOptions,
+      removeToast, showToast, setActiveTab, setActiveConfigSection,
       login, logout, refreshAll, saveConfig, runTest, loadLogs, applyLogFilters, goToLogPage,
-      addBackend, removeBackend, addModel, removeModel,
+      addBackend, removeBackend,
       addProtocolOverride, removeProtocolOverride, availableProtocols,
       modelDefaultReferencesText, resolveEffectiveReasoning,
       displayClientModel, displayBackendModel, displayProtocol,
+      editingBackendIndex, editingBackendDraft, startEditBackend, cancelEditBackend, saveBackendDraft, addDraftModel, removeDraftModel,
     }
   }
 }).mount('#app')
