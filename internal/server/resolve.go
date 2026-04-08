@@ -131,9 +131,9 @@ func (idx *ModelIndex) MatchByPrefix(path string) (*config.Backend, bool) {
 	var best *config.Backend
 	bestLen := 0
 	for _, b := range idx.prefixBackends {
-		if strings.HasPrefix(path, b.PathPrefix) && len(b.PathPrefix) > bestLen {
+		if pathPrefixMatches(path, b.PathPrefix) && len(canonicalPathPrefix(b.PathPrefix)) > bestLen {
 			best = b
-			bestLen = len(b.PathPrefix)
+			bestLen = len(canonicalPathPrefix(b.PathPrefix))
 		}
 	}
 	if best != nil {

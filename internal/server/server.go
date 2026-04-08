@@ -409,7 +409,7 @@ func (s *Server) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Intercept /v1/models for Anthropic clients: return all model aliases
-	if r.URL.Path == "/v1/models" && isAnthropicClient(r.Header) {
+	if r.URL.Path == "/v1/models" && isAnthropicClient(r.URL.Path, r.Header) {
 		s.Debug.Printf("[%s] serving model list for anthropic client", reqID)
 		s.serveModelList(w)
 		return

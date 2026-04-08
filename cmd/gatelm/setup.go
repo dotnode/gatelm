@@ -98,26 +98,18 @@ func runInteractiveSetup(configPath string) (*gatelm.Config, error) {
 		}
 	}
 
-	// Build headers based on protocol
-	headers := make(map[string]string)
-	if protocol == "anthropic" {
-		headers["x-api-key"] = apiKey
-		headers["anthropic-version"] = "2023-06-01"
-	} else {
-		headers["Authorization"] = "Bearer " + apiKey
-	}
-
 	cfg := &gatelm.Config{
 		Listen: ":" + listenPort,
 		Backends: []gatelm.Backend{
 			{
-				Name:     "default",
-				URL:      backendURL,
-				Protocol: protocol,
-				Default:  true,
-				Weight:   1,
-				Headers:  headers,
-				Models:   []gatelm.Model{},
+				Name:             "default",
+				URL:              backendURL,
+				Protocol:         protocol,
+				APIKey:           apiKey,
+				AnthropicVersion: defaultAnthropicVersion(protocol),
+				Default:          true,
+				Weight:           1,
+				Models:           []gatelm.Model{},
 			},
 		},
 		Console: gatelm.ConsoleConfig{
@@ -146,7 +138,12 @@ func writeConfigFile(path string, cfg *gatelm.Config) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-// --- prompt helpers ---
+func defaultAnthropicVersion(protocol string) string {
+	if protocol == "anthropic" {
+		return "2023-06-01"
+	}
+	return ""
+}
 
 func prompt(reader *bufio.Reader, question string) string {
 	fmt.Printf("%s: ", question)

@@ -34,6 +34,43 @@ func TestComposeTargetURL(t *testing.T) {
 	}
 }
 
+func TestPathPrefixMatches(t *testing.T) {
+	tests := []struct {
+		path   string
+		prefix string
+		want   bool
+	}{
+		{path: "/openai", prefix: "/openai", want: true},
+		{path: "/openai/v1/chat/completions", prefix: "/openai", want: true},
+		{path: "/openai2", prefix: "/openai", want: false},
+		{path: "/openai-backend", prefix: "/openai", want: false},
+		{path: "/other/path", prefix: "/", want: true},
+	}
+	for _, tt := range tests {
+		if got := pathPrefixMatches(tt.path, tt.prefix); got != tt.want {
+			t.Fatalf("pathPrefixMatches(%q, %q) = %v, want %v", tt.path, tt.prefix, got, tt.want)
+		}
+	}
+}
+
+func TestTrimPathPrefix(t *testing.T) {
+	tests := []struct {
+		path   string
+		prefix string
+		want   string
+	}{
+		{path: "/openai", prefix: "/openai", want: "/"},
+		{path: "/openai/v1/chat/completions", prefix: "/openai", want: "/v1/chat/completions"},
+		{path: "/openai2/v1/chat/completions", prefix: "/openai", want: "/openai2/v1/chat/completions"},
+		{path: "/other/path", prefix: "/", want: "/other/path"},
+	}
+	for _, tt := range tests {
+		if got := trimPathPrefix(tt.path, tt.prefix); got != tt.want {
+			t.Fatalf("trimPathPrefix(%q, %q) = %q, want %q", tt.path, tt.prefix, got, tt.want)
+		}
+	}
+}
+
 func TestModelIndexResolve(t *testing.T) {
 	backends := []config.Backend{
 		{
@@ -132,6 +169,12 @@ func TestModelIndexMatchByPrefix(t *testing.T) {
 		t.Fatalf("expected openai-prefixed, got ok=%v name=%v", ok, b)
 	}
 
+	// Similar prefix must not match
+	b, ok = idx.MatchByPrefix("/openai2/v1/chat/completions")
+	if !ok || b.Name != "root" {
+		t.Fatalf("expected root for similar prefix, got ok=%v name=%v", ok, b)
+	}
+
 	// Shorter prefix
 	b, ok = idx.MatchByPrefix("/other/path")
 	if !ok || b.Name != "root" {
@@ -160,6 +203,22 @@ func TestDetectProtocolByRequest(t *testing.T) {
 	// Unknown
 	if got := detectProtocolByRequest("/unknown", http.Header{}); got != "" {
 		t.Fatalf("expected empty, got %s", got)
+	}
+}
+
+func TestIsAnthropicClient(t *testing.T) {
+	if !isAnthropicClient("/v1/messages", http.Header{}) {
+		t.Fatal("expected anthropic client by path")
+	}
+	h := http.Header{}
+	h.Set("anthropic-version", "2023-06-01")
+	if !isAnthropicClient("/v1/models", h) {
+		t.Fatal("expected anthropic client by anthropic-version header")
+	}
+	h = http.Header{}
+	h.Set("x-api-key", "sk-test")
+	if isAnthropicClient("/v1/models", h) {
+		t.Fatal("expected x-api-key only not to imply anthropic client")
 	}
 }
 

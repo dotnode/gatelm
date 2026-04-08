@@ -8,6 +8,44 @@ import (
 	"github.com/dotnode/gatelm/internal/config"
 )
 
+func canonicalPathPrefix(prefix string) string {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" || prefix == "/" {
+		return prefix
+	}
+	prefix = strings.TrimRight(prefix, "/")
+	if prefix == "" {
+		return "/"
+	}
+	return prefix
+}
+
+func pathPrefixMatches(path, prefix string) bool {
+	prefix = canonicalPathPrefix(prefix)
+	if prefix == "" {
+		return false
+	}
+	if prefix == "/" {
+		return strings.HasPrefix(path, "/")
+	}
+	return path == prefix || strings.HasPrefix(path, prefix+"/")
+}
+
+func trimPathPrefix(path, prefix string) string {
+	prefix = canonicalPathPrefix(prefix)
+	if prefix == "" || prefix == "/" || !pathPrefixMatches(path, prefix) {
+		return path
+	}
+	trimmed := strings.TrimPrefix(path, prefix)
+	if trimmed == "" {
+		return "/"
+	}
+	if !strings.HasPrefix(trimmed, "/") {
+		return "/" + trimmed
+	}
+	return trimmed
+}
+
 func detectProtocolByRequest(requestPath string, headers http.Header) string {
 	if isAnthropicPath(requestPath) {
 		return "anthropic"
@@ -72,11 +110,8 @@ func composeTargetURL(backend *config.Backend, incoming *url.URL) (string, error
 		return "", err
 	}
 	pathPart := incoming.Path
-	if backend.StripPrefix && strings.HasPrefix(pathPart, backend.PathPrefix) {
-		pathPart = strings.TrimPrefix(pathPart, backend.PathPrefix)
-		if pathPart == "" {
-			pathPart = "/"
-		}
+	if backend.StripPrefix && pathPrefixMatches(pathPart, backend.PathPrefix) {
+		pathPart = trimPathPrefix(pathPart, backend.PathPrefix)
 	}
 	base.Path = joinURLPath(base.Path, pathPart)
 	base.RawQuery = incoming.RawQuery
@@ -99,15 +134,9 @@ func joinURLPath(a, b string) string {
 	return a + "/" + b
 }
 
-func isAnthropicClient(h http.Header) bool {
-	if strings.TrimSpace(h.Get("anthropic-version")) != "" {
+func isAnthropicClient(requestPath string, h http.Header) bool {
+	if isAnthropicPath(requestPath) {
 		return true
 	}
-	if strings.TrimSpace(h.Get("x-api-key")) != "" {
-		auth := strings.TrimSpace(h.Get("Authorization"))
-		if !strings.HasPrefix(strings.ToLower(auth), "bearer ") {
-			return true
-		}
-	}
-	return false
+	return strings.TrimSpace(h.Get("anthropic-version")) != ""
 }
