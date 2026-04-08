@@ -731,19 +731,20 @@ func (s *Server) handleConsoleLogin(basePath string) http.HandlerFunc {
 			http.Error(w, "invalid password", http.StatusUnauthorized)
 			return
 		}
-		s.issueConsoleSessionCookie(w, r, basePath)
+		s.issueConsoleSessionCookie(w, r, basePath, snap.cfg.TrustedProxies)
 		writeJSON(w, http.StatusOK, consoleAuthStatusResponse{Enabled: true, Authenticated: true})
 	}
 }
 
 func (s *Server) handleConsoleLogout(basePath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		s.clearConsoleSessionCookie(w, r, basePath)
+		snap := s.snapshot()
+		s.clearConsoleSessionCookie(w, r, basePath, snap.cfg.TrustedProxies)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	}
 }
 
-func (s *Server) issueConsoleSessionCookie(w http.ResponseWriter, r *http.Request, basePath string) {
+func (s *Server) issueConsoleSessionCookie(w http.ResponseWriter, r *http.Request, basePath string, trustedProxies []string) {
 	token := generateSessionToken()
 	s.sessions.Store(token, &sessionEntry{expiresAt: time.Now().Add(consoleSessionMaxAge)})
 	maxAge := int(consoleSessionMaxAge.Seconds())
@@ -753,12 +754,12 @@ func (s *Server) issueConsoleSessionCookie(w http.ResponseWriter, r *http.Reques
 		Path:     normalizeConsoleBasePath(basePath),
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"),
+		Secure:   isSecureRequest(r, trustedProxies),
 		MaxAge:   maxAge,
 	})
 }
 
-func (s *Server) clearConsoleSessionCookie(w http.ResponseWriter, r *http.Request, basePath string) {
+func (s *Server) clearConsoleSessionCookie(w http.ResponseWriter, r *http.Request, basePath string, trustedProxies []string) {
 	if cookie, err := r.Cookie(consoleSessionCookieName); err == nil {
 		s.sessions.Delete(cookie.Value)
 	}
@@ -768,7 +769,7 @@ func (s *Server) clearConsoleSessionCookie(w http.ResponseWriter, r *http.Reques
 		Path:     normalizeConsoleBasePath(basePath),
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"),
+		Secure:   isSecureRequest(r, trustedProxies),
 		MaxAge:   -1,
 	})
 }
@@ -838,6 +839,23 @@ func parseRecoveryTimeoutOrDefault(s string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
+}
+
+func isSecureRequest(r *http.Request, trustedProxies []string) bool {
+	if r == nil {
+		return false
+	}
+	if r.TLS != nil {
+		return true
+	}
+	remoteHost, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if remoteHost == "" {
+		remoteHost = r.RemoteAddr
+	}
+	if !isTrustedProxy(remoteHost, trustedProxies) {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
 }
 
 func normalizeConsoleBasePath(basePath string) string {

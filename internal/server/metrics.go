@@ -139,7 +139,7 @@ func (o *promObserver) ObserveRequest(metric RequestMetric) {
 func sanitizeProtocol(v string) string {
 	p := strings.ToLower(strings.TrimSpace(v))
 	switch p {
-	case "openai", "anthropic":
+	case "openai", "openai-responses", "anthropic":
 		return p
 	default:
 		return "unknown"

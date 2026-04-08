@@ -14,6 +14,9 @@ func TestPromObserverSanitizeHelpers(t *testing.T) {
 	if got := sanitizeProtocol("OPENAI"); got != "openai" {
 		t.Fatalf("sanitizeProtocol openai = %s", got)
 	}
+	if got := sanitizeProtocol("openai-responses"); got != "openai-responses" {
+		t.Fatalf("sanitizeProtocol openai-responses = %s", got)
+	}
 	if got := sanitizeProtocol("something-else"); got != "unknown" {
 		t.Fatalf("sanitizeProtocol unknown = %s", got)
 	}
@@ -60,12 +63,12 @@ func TestPromObserverObserve(t *testing.T) {
 		RetryCount:     1,
 	})
 	po.ObserveRequest(RequestMetric{
-		ClientProtocol: "custom",
-		Backend:        "",
-		Result:         "failure",
-		StatusCode:     502,
-		ErrorCategory:  "network_error",
-		Duration:       0,
+		ClientProtocol: "openai-responses",
+		Backend:        "b2",
+		Result:         "success",
+		StatusCode:     200,
+		ErrorCategory:  "success",
+		Duration:       5 * time.Millisecond,
 		RetryCount:     0,
 	})
 
@@ -78,8 +81,8 @@ func TestPromObserverObserve(t *testing.T) {
 	if got := counterValue(po.requestsTotal.WithLabelValues("openai", "b1", "success", "2xx", "success")); got != 1 {
 		t.Fatalf("requestsTotal success = %v", got)
 	}
-	if got := counterValue(po.requestsTotal.WithLabelValues("unknown", "none", "failure", "5xx", "network_error")); got != 1 {
-		t.Fatalf("requestsTotal failure = %v", got)
+	if got := counterValue(po.requestsTotal.WithLabelValues("openai-responses", "b2", "success", "2xx", "success")); got != 1 {
+		t.Fatalf("requestsTotal openai-responses = %v", got)
 	}
 	if got := histogramCount(po.requestRetries); got != 2 {
 		t.Fatalf("requestRetries count = %d", got)

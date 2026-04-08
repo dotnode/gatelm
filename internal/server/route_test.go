@@ -8,6 +8,14 @@ import (
 	"github.com/dotnode/gatelm/internal/config"
 )
 
+func TestJoinURLPathPreservesPathSemantics(t *testing.T) {
+	got := joinURLPath("/proxy", "v1//chat/../completions")
+	want := "/proxy/v1//chat/../completions"
+	if got != want {
+		t.Fatalf("got %s want %s", got, want)
+	}
+}
+
 func TestComposeTargetURL(t *testing.T) {
 	backend := &config.Backend{
 		Name:        "test",

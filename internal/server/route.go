@@ -3,7 +3,6 @@ package server
 import (
 	"net/http"
 	"net/url"
-	"path"
 	"strings"
 
 	"github.com/dotnode/gatelm/internal/config"
@@ -97,7 +96,7 @@ func joinURLPath(a, b string) string {
 	if strings.HasSuffix(a, "/") || strings.HasPrefix(b, "/") {
 		return a + b
 	}
-	return path.Clean(a + "/" + b)
+	return a + "/" + b
 }
 
 func isAnthropicClient(h http.Header) bool {

@@ -74,6 +74,57 @@ func TestConsoleConfigGetAndStatus(t *testing.T) {
 	}
 }
 
+func TestConsoleLoginSecureCookieTrustsOnlyTrustedProxy(t *testing.T) {
+	cfg := config.Config{
+		Console: config.ConsoleConfig{Enabled: true, Password: "secret-pass"},
+		Backends: []config.Backend{{
+			Name: "b1", URL: "http://example.com", Protocol: "openai", Models: []config.Model{{Name: "gpt-4o"}},
+		}},
+	}
+	srv := New(cfg, nil, logging.NewDebugLog(false, ""), http.DefaultClient, NewHealthManager(HealthManagerConfig{}, http.DefaultClient, logging.NewDebugLog(false, "")), NewNoopObserver())
+	mux := http.NewServeMux()
+	srv.RegisterConsoleRoutes(mux)
+
+	body := bytes.NewReader([]byte(`{"password":"secret-pass"}`))
+	req := httptest.NewRequest(http.MethodPost, "/console/api/login", body)
+	req.RemoteAddr = "198.51.100.10:12345"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected login 200, got %d", w.Code)
+	}
+	cookies := w.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected session cookie")
+	}
+	if cookies[0].Secure {
+		t.Fatal("expected insecure cookie for untrusted proxy header")
+	}
+
+	cfg.TrustedProxies = []string{"198.51.100.10"}
+	srv = New(cfg, nil, logging.NewDebugLog(false, ""), http.DefaultClient, NewHealthManager(HealthManagerConfig{}, http.DefaultClient, logging.NewDebugLog(false, "")), NewNoopObserver())
+	mux = http.NewServeMux()
+	srv.RegisterConsoleRoutes(mux)
+
+	body = bytes.NewReader([]byte(`{"password":"secret-pass"}`))
+	req = httptest.NewRequest(http.MethodPost, "/console/api/login", body)
+	req.RemoteAddr = "198.51.100.10:12345"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected trusted proxy login 200, got %d", w.Code)
+	}
+	cookies = w.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected trusted proxy session cookie")
+	}
+	if !cookies[0].Secure {
+		t.Fatal("expected secure cookie for trusted proxy https header")
+	}
+}
+
 func TestConsoleAuthFlow(t *testing.T) {
 	cfg := config.Config{
 		Console: config.ConsoleConfig{Enabled: true, Password: "secret-pass"},
