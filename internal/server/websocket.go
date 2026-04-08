@@ -505,9 +505,7 @@ func (s *Server) wsDialAndRelay(
 	}
 
 	backendHeaders := http.Header{}
-	for k, v := range backend.Headers {
-		backendHeaders.Set(k, v)
-	}
+	applyBackendHeaders(backendHeaders, backend)
 	backendHeaders.Set("X-Request-Id", reqID)
 
 	dialCtx := r.Context()

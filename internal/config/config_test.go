@@ -95,6 +95,39 @@ backends:
 	}
 }
 
+func TestLoadConfigBackendAuthFields(t *testing.T) {
+	path := writeTempConfig(t, `
+backends:
+  - name: openai
+    url: "http://127.0.0.1:8080"
+    protocol: "openai"
+    api_key: "  sk-openai  "
+    models:
+      - name: gpt-4o
+  - name: anthropic
+    url: "http://127.0.0.1:8081"
+    protocol: "anthropic"
+    api_key: " sk-ant "
+    anthropic_version: " 2024-10-22 "
+    models:
+      - name: claude-3-5-sonnet
+`)
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if got := cfg.Backends[0].APIKey; got != "sk-openai" {
+		t.Fatalf("backend[0].api_key = %q, want sk-openai", got)
+	}
+	if got := cfg.Backends[1].APIKey; got != "sk-ant" {
+		t.Fatalf("backend[1].api_key = %q, want sk-ant", got)
+	}
+	if got := cfg.Backends[1].AnthropicVersion; got != "2024-10-22" {
+		t.Fatalf("backend[1].anthropic_version = %q, want 2024-10-22", got)
+	}
+}
+
 func TestLoadConfigModelSystemPromptTrim(t *testing.T) {
 	path := writeTempConfig(t, `
 backends:

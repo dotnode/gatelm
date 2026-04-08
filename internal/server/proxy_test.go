@@ -2,7 +2,10 @@ package server
 
 import (
 	"encoding/json"
+	"net/http"
 	"testing"
+
+	"github.com/dotnode/gatelm/internal/config"
 )
 
 func TestReplaceModelInBody(t *testing.T) {
@@ -295,6 +298,51 @@ func TestNormalizeReasoningEffortAliasInBody(t *testing.T) {
 		}
 		if _, ok := m["reasoning_effort"]; ok {
 			t.Fatalf("reasoning_effort should not be present for responses payload")
+		}
+	})
+}
+
+func TestApplyBackendAuthHeaders(t *testing.T) {
+	t.Run("openai injects bearer", func(t *testing.T) {
+		h := http.Header{}
+		applyBackendHeaders(h, &config.Backend{Protocol: "openai", APIKey: "sk-openai"})
+		if got := h.Get("Authorization"); got != "Bearer sk-openai" {
+			t.Fatalf("Authorization = %q, want %q", got, "Bearer sk-openai")
+		}
+	})
+
+	t.Run("openai responses injects bearer", func(t *testing.T) {
+		h := http.Header{}
+		applyBackendHeaders(h, &config.Backend{Protocol: "openai-responses", APIKey: "sk-responses"})
+		if got := h.Get("Authorization"); got != "Bearer sk-responses" {
+			t.Fatalf("Authorization = %q, want %q", got, "Bearer sk-responses")
+		}
+	})
+
+	t.Run("anthropic injects api key and default version", func(t *testing.T) {
+		h := http.Header{}
+		applyBackendHeaders(h, &config.Backend{Protocol: "anthropic", APIKey: "sk-ant"})
+		if got := h.Get("x-api-key"); got != "sk-ant" {
+			t.Fatalf("x-api-key = %q, want %q", got, "sk-ant")
+		}
+		if got := h.Get("anthropic-version"); got != defaultAnthropicVersion {
+			t.Fatalf("anthropic-version = %q, want %q", got, defaultAnthropicVersion)
+		}
+	})
+
+	t.Run("anthropic uses custom version", func(t *testing.T) {
+		h := http.Header{}
+		applyBackendHeaders(h, &config.Backend{Protocol: "anthropic", APIKey: "sk-ant", AnthropicVersion: "2024-10-22"})
+		if got := h.Get("anthropic-version"); got != "2024-10-22" {
+			t.Fatalf("anthropic-version = %q, want %q", got, "2024-10-22")
+		}
+	})
+
+	t.Run("explicit headers override generated auth", func(t *testing.T) {
+		h := http.Header{}
+		applyBackendHeaders(h, &config.Backend{Protocol: "openai", APIKey: "sk-openai", Headers: map[string]string{"Authorization": "Bearer custom"}})
+		if got := h.Get("Authorization"); got != "Bearer custom" {
+			t.Fatalf("Authorization = %q, want %q", got, "Bearer custom")
 		}
 	})
 }

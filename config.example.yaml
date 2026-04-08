@@ -93,14 +93,17 @@ backends:
     url: "https://api.openai.com"
 
     # 后端协议：openai / anthropic / openai-responses
-    # openai          → /v1/chat/completions
-    # anthropic       → /v1/messages
-    # openai-responses → /v1/responses
+    # openai           → /v1/chat/completions + Authorization: Bearer <api_key>
+    # anthropic        → /v1/messages + x-api-key (+ anthropic-version)
+    # openai-responses → /v1/responses + Authorization: Bearer <api_key>
     protocol: "openai"
 
-    # 请求头，通常用于认证
-    headers:
-      Authorization: "Bearer sk-your-api-key"
+    # 推荐：只填 api_key，认证头按 protocol 自动生成
+    api_key: "sk-your-api-key"
+
+    # 如需额外自定义头或兼容性覆盖，再使用 headers
+    # headers:
+    #   X-Custom-Header: "value"
 
     # 模型列表
     models:
@@ -130,8 +133,7 @@ backends:
   #   # 适用于不支持 WebSocket 的后端
   #   sse_only: true
   #
-  #   headers:
-  #     Authorization: "Bearer sk-your-api-key"
+  #   api_key: "sk-your-api-key"
   #   models:
   #     - name: gpt-4o
   #       aliases: [claude-sonnet-4]
@@ -152,8 +154,7 @@ backends:
   #     path: "/healthz"              # 检查路径，默认 /healthz
   #     interval: "10s"               # 检查间隔
   #
-  #   headers:
-  #     Authorization: "Bearer sk-primary-key"
+  #   api_key: "sk-primary-key"
   #   models:
   #     - name: gpt-4o
   #       aliases: [claude-sonnet-4]
@@ -163,8 +164,7 @@ backends:
   #   protocol: "openai"
   #   priority: 2                     # 较低优先级，primary 不可用时自动降级
   #   weight: 1
-  #   headers:
-  #     Authorization: "Bearer sk-secondary-key"
+  #   api_key: "sk-secondary-key"
   #   models:
   #     - name: gpt-4o
   #       aliases: [claude-sonnet-4]  # 同一 alias，实现自动容错
@@ -174,8 +174,7 @@ backends:
   #   url: "https://api.openai.com"
   #   protocol: "openai"
   #   default: true                   # 只能有一个 default 后端
-  #   headers:
-  #     Authorization: "Bearer sk-your-key"
+  #   api_key: "sk-your-key"
   #   models:
   #     - name: gpt-4o
   #       aliases: [gpt4]
@@ -187,8 +186,7 @@ backends:
   #   protocol: "openai"
   #   path_prefix: "/openai"          # 匹配 /openai/* 的请求
   #   strip_prefix: true              # 转发时去掉 /openai 前缀
-  #   headers:
-  #     Authorization: "Bearer sk-your-key"
+  #   api_key: "sk-your-key"
   #   models:
   #     - name: gpt-4o
 

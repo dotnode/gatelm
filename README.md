@@ -56,8 +56,7 @@ backends:
   - name: my-openai
     url: "https://api.openai.com"
     protocol: "openai"             # openai / anthropic / openai-responses
-    headers:
-      Authorization: "Bearer sk-xxx"
+    api_key: "sk-xxx"              # 按 protocol 自动生成认证头
     models:
       - name: gpt-5.4              # 后端实际模型名
         aliases: [claude-opus-4-6, claude-sonnet-4-6] # 客户端可用的别名
@@ -71,9 +70,9 @@ backends:
 
 | 协议 | 端点 | 说明 |
 |------|------|------|
-| `openai` | `/v1/chat/completions` | OpenAI Chat API |
-| `openai-responses` | `/v1/responses` | OpenAI Responses API |
-| `anthropic` | `/v1/messages` | Anthropic Messages API |
+| `openai` | `/v1/chat/completions` | 自动生成 `Authorization: Bearer <api_key>` |
+| `openai-responses` | `/v1/responses` | 自动生成 `Authorization: Bearer <api_key>` |
+| `anthropic` | `/v1/messages` | 自动生成 `x-api-key`，并补 `anthropic-version` |
 
 ### 多后端容错
 
@@ -90,8 +89,7 @@ backends:
     health_check:
       path: "/healthz"
       interval: "10s"
-    headers:
-      Authorization: "Bearer sk-primary"
+    api_key: "sk-primary"
     models:
       - name: gpt-5.4
         aliases: [claude-opus-4-6, claude-sonnet-4-6]
@@ -100,8 +98,7 @@ backends:
     url: "https://secondary-api.example.com"
     protocol: "openai"
     priority: 2          # primary 不可用时自动降级到这里
-    headers:
-      Authorization: "Bearer sk-secondary"
+    api_key: "sk-secondary"
     models:
       - name: gpt-5.4
         aliases: [claude-opus-4-6, claude-sonnet-4-6]   # 同一 alias

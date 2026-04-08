@@ -662,9 +662,7 @@ func (s *Server) handleConsoleTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	for k, v := range backend.Headers {
-		httpReq.Header.Set(k, v)
-	}
+	applyBackendHeaders(httpReq.Header, backend)
 	start := time.Now()
 	resp, err := snap.client.Do(httpReq)
 	if err != nil {

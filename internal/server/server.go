@@ -44,8 +44,8 @@ type Server struct {
 	Codecs        map[string]ProtocolCodec // protocol name → codec
 	loginAttempts sync.Map                 // ip -> *loginAttempt (for console rate limiting)
 	sessions      sync.Map                 // token -> *sessionEntry (for console sessions)
-	cleanupStop   chan struct{}             // signals the cleanup goroutine to exit
-	cleanupDone   chan struct{}             // closed when the cleanup goroutine exits
+	cleanupStop   chan struct{}            // signals the cleanup goroutine to exit
+	cleanupDone   chan struct{}            // closed when the cleanup goroutine exits
 }
 
 func shouldNormalizeReasoningEffortAlias(protocol string, normalize bool, body []byte) []byte {
@@ -839,9 +839,7 @@ func (s *Server) tryForward(
 
 	copyHeaders(req.Header, r.Header)
 	removeHopByHopHeaders(req.Header)
-	for k, v := range backend.Headers {
-		req.Header.Set(k, v)
-	}
+	applyBackendHeaders(req.Header, backend)
 	if needsProtocolConversion(clientProtocol, backend.Protocol) && clientProtocol == "anthropic" {
 		req.Header.Del("anthropic-version")
 		if req.Header.Get("Authorization") != "" {

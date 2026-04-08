@@ -242,10 +242,12 @@ func TestConsoleLogsAndSaveConfig(t *testing.T) {
 	payload := consoleConfigPayload{
 		Listen: ":9090",
 		Backends: []config.Backend{{
-			Name:     "b1",
-			URL:      "http://example.org",
-			Protocol: "openai",
-			Headers:  map[string]string{"Authorization": "Bearer b"},
+			Name:             "b1",
+			URL:              "http://example.org",
+			Protocol:         "openai",
+			APIKey:           "sk-openai-updated",
+			AnthropicVersion: "2024-10-22",
+			Headers:          map[string]string{"Authorization": "Bearer b"},
 			HealthCheck: &config.HealthCheckConfig{
 				Path:     "/readyz",
 				Interval: "45s",
@@ -302,8 +304,11 @@ func TestConsoleLogsAndSaveConfig(t *testing.T) {
 	if !bytes.Contains(updated, []byte("# model defaults comment")) {
 		t.Fatalf("expected model defaults comment to be preserved, got:\n%s", updatedText)
 	}
-	if !bytes.Contains(updated, []byte("# model default comment")) {
-		t.Fatalf("expected model default comment to be preserved, got:\n%s", updatedText)
+	if !bytes.Contains(updated, []byte("api_key: sk-openai-updated")) {
+		t.Fatalf("expected api_key to be saved, got:\n%s", updatedText)
+	}
+	if !bytes.Contains(updated, []byte("anthropic_version: \"2024-10-22\"")) {
+		t.Fatalf("expected anthropic_version to be saved, got:\n%s", updatedText)
 	}
 }
 

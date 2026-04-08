@@ -50,19 +50,21 @@ type ConsoleConfig struct {
 }
 
 type Backend struct {
-	Name        string             `yaml:"name" json:"name"`
-	URL         string             `yaml:"url" json:"url"`
-	Protocol    string             `yaml:"protocol" json:"protocol"`
-	Headers     map[string]string  `yaml:"headers" json:"headers"`
-	Models      []Model            `yaml:"models" json:"models"`
-	PathPrefix  string             `yaml:"path_prefix" json:"path_prefix"`
-	StripPrefix bool               `yaml:"strip_prefix" json:"strip_prefix"`
-	Default     bool               `yaml:"default" json:"default"`
-	Priority    int                `yaml:"priority" json:"priority"`
-	Weight      int                `yaml:"weight" json:"weight"`
-	Timeout     string             `yaml:"timeout" json:"timeout"`   // per-backend request timeout, e.g. "120s"; empty = use global default
-	SSEOnly     bool               `yaml:"sse_only" json:"sse_only"` // when true, WS clients use HTTP SSE directly (skip WS dial)
-	HealthCheck *HealthCheckConfig `yaml:"health_check" json:"health_check"`
+	Name             string             `yaml:"name" json:"name"`
+	URL              string             `yaml:"url" json:"url"`
+	Protocol         string             `yaml:"protocol" json:"protocol"`
+	APIKey           string             `yaml:"api_key" json:"api_key"`
+	AnthropicVersion string             `yaml:"anthropic_version" json:"anthropic_version"`
+	Headers          map[string]string  `yaml:"headers" json:"headers"`
+	Models           []Model            `yaml:"models" json:"models"`
+	PathPrefix       string             `yaml:"path_prefix" json:"path_prefix"`
+	StripPrefix      bool               `yaml:"strip_prefix" json:"strip_prefix"`
+	Default          bool               `yaml:"default" json:"default"`
+	Priority         int                `yaml:"priority" json:"priority"`
+	Weight           int                `yaml:"weight" json:"weight"`
+	Timeout          string             `yaml:"timeout" json:"timeout"`   // per-backend request timeout, e.g. "120s"; empty = use global default
+	SSEOnly          bool               `yaml:"sse_only" json:"sse_only"` // when true, WS clients use HTTP SSE directly (skip WS dial)
+	HealthCheck      *HealthCheckConfig `yaml:"health_check" json:"health_check"`
 }
 
 type HealthCheckConfig struct {
@@ -153,6 +155,8 @@ func NormalizeAndValidate(cfg Config) (Config, error) {
 
 		// Protocol default and validation
 		b.Protocol = strings.ToLower(strings.TrimSpace(b.Protocol))
+		b.APIKey = strings.TrimSpace(b.APIKey)
+		b.AnthropicVersion = strings.TrimSpace(b.AnthropicVersion)
 		if b.Protocol == "" {
 			b.Protocol = "openai"
 		}

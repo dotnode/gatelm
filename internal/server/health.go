@@ -279,9 +279,7 @@ func (hm *HealthManager) doActiveCheck(backend *config.Backend, checkURL string)
 		return
 	}
 
-	for k, v := range backend.Headers {
-		req.Header.Set(k, v)
-	}
+	applyBackendHeaders(req.Header, backend)
 
 	resp, err := hm.client.Do(req)
 	if err != nil {
