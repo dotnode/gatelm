@@ -54,6 +54,7 @@ max_concurrent_requests: 0   # 最大并发，0 = 不限
 ```yaml
 backends:
   - name: my-openai
+    enabled: true                 # 可选；未填写默认启用，false 时完全退出路由
     url: "https://api.openai.com"
     protocol: "openai"             # openai / anthropic / openai-responses
     api_key: "sk-xxx"              # 按 protocol 自动生成认证头
@@ -65,6 +66,8 @@ backends:
       - name: gpt-5.4-codex-mini
         aliases: [claude-haiku-4-5-20251001]
 ```
+
+`backends[].enabled` 未配置时按启用处理，兼容旧配置；只有显式设为 `false` 才会停用该 backend。停用后它不会参与 model alias 路由、`default` 后端选择、`path_prefix` 匹配、console 在线测试和主动健康检查；这与运行时的 `healthy/tripped/probing` 熔断状态是两套独立语义。
 
 支持三种后端协议：
 

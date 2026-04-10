@@ -47,6 +47,7 @@ type HealthManager struct {
 
 type BackendHealthSnapshot struct {
 	Name              string    `json:"name"`
+	Enabled           bool      `json:"enabled"`
 	State             string    `json:"state"`
 	ConsecutiveFails  int       `json:"consecutive_fails"`
 	LastFailTime      time.Time `json:"last_fail_time,omitempty"`
@@ -233,7 +234,7 @@ func (hm *HealthManager) ReportFailure(name string) bool {
 func (hm *HealthManager) StartActiveChecks(backends []config.Backend) {
 	for i := range backends {
 		b := &backends[i]
-		if b.HealthCheck == nil || b.HealthCheck.Path == "" {
+		if !config.BackendEnabled(b) || b.HealthCheck == nil || b.HealthCheck.Path == "" {
 			continue
 		}
 
@@ -310,12 +311,18 @@ func (hm *HealthManager) Snapshot(backends []config.Backend) []BackendHealthSnap
 	result := make([]BackendHealthSnapshot, 0, len(backends))
 	for i := range backends {
 		b := backends[i]
+		enabled := config.BackendEnabled(&b)
 		bh := hm.getOrCreate(b.Name)
 		bh.mu.Lock()
 		hm.maybeMoveToHalfOpenLocked(bh, hm.now())
+		state := string(bh.state)
+		if !enabled {
+			state = "disabled"
+		}
 		snapshot := BackendHealthSnapshot{
 			Name:              b.Name,
-			State:             string(bh.state),
+			Enabled:           enabled,
+			State:             state,
 			ConsecutiveFails:  bh.consecutiveFails,
 			LastFailTime:      bh.lastFailTime,
 			HalfOpenInFlight:  bh.halfOpenInFlight,
@@ -324,7 +331,7 @@ func (hm *HealthManager) Snapshot(backends []config.Backend) []BackendHealthSnap
 			Protocol:          b.Protocol,
 			URL:               b.URL,
 			PathPrefix:        b.PathPrefix,
-			ActiveHealthCheck: b.HealthCheck != nil,
+			ActiveHealthCheck: enabled && b.HealthCheck != nil,
 		}
 		bh.mu.Unlock()
 		result = append(result, snapshot)

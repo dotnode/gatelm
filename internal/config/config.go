@@ -51,6 +51,7 @@ type ConsoleConfig struct {
 
 type Backend struct {
 	Name             string             `yaml:"name" json:"name"`
+	Enabled          *bool              `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 	URL              string             `yaml:"url" json:"url"`
 	Protocol         string             `yaml:"protocol" json:"protocol"`
 	APIKey           string             `yaml:"api_key" json:"api_key"`
@@ -65,6 +66,10 @@ type Backend struct {
 	Timeout          string             `yaml:"timeout" json:"timeout"`   // per-backend request timeout, e.g. "120s"; empty = use global default
 	SSEOnly          bool               `yaml:"sse_only" json:"sse_only"` // when true, WS clients use HTTP SSE directly (skip WS dial)
 	HealthCheck      *HealthCheckConfig `yaml:"health_check" json:"health_check"`
+}
+
+func BackendEnabled(b *Backend) bool {
+	return b != nil && (b.Enabled == nil || *b.Enabled)
 }
 
 type HealthCheckConfig struct {

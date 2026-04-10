@@ -321,6 +321,7 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
                       <div class="flex flex-wrap items-center gap-2">
                         <h3 class="console-display text-base font-semibold">{{ backend.name || ('Backend ' + (backendIndex + 1)) }}</h3>
                         <div class="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold" style="border-color: #bfdbfe; color: var(--text-accent); background: var(--bg-accent);">{{ backend.protocol || 'openai' }}</div>
+                        <div class="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold" :style="backendEnabled(backend) ? 'border-color: #bbf7d0; color: var(--text-success); background: var(--bg-success-soft);' : 'border-color: #fecaca; color: var(--text-danger); background: var(--bg-danger-soft);'">{{ backendEnabled(backend) ? '已启用' : '已禁用' }}</div>
                         <span class="console-inline-code">{{ (backend.models || []).length }} models</span>
                       </div>
                       <div class="mt-2 console-backend-meta">
@@ -413,6 +414,7 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
                       <label class="console-field"><span class="console-field-label">Anthropic Version</span><input v-model="editingBackendDraft.anthropic_version" class="console-input console-mono" placeholder="anthropic 时可选，默认自动补 2023-06-01" /></label>
                       <label class="console-field"><span class="console-field-label">优先级</span><input v-model.number="editingBackendDraft.priority" type="number" class="console-input console-mono" /></label>
                       <label class="console-field"><span class="console-field-label">权重</span><input v-model.number="editingBackendDraft.weight" type="number" class="console-input console-mono" /></label>
+                      <label class="console-field"><span class="console-field-label">启用状态</span><select v-model="editingBackendDraft.enabled" class="console-input"><option :value="true">启用</option><option :value="false">禁用</option></select></label>
                       <label class="console-field"><span class="console-field-label">前缀</span><input v-model="editingBackendDraft.path_prefix" class="console-input console-mono" /></label>
                     </div>
                     <label class="console-field mt-3"><span class="console-field-label">Header(JSON)</span>
@@ -473,7 +475,7 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
                     <tbody>
                       <tr v-for="item in status.backends" :key="item.name">
                         <td class="font-medium text-[var(--text-primary)]">{{ item.name }}</td>
-                        <td><span class="inline-flex items-center px-2 py-0.5 text-[10px] font-bold" :class="item.state === 'healthy' ? 'console-badge-healthy' : item.state === 'tripped' ? 'console-badge-tripped' : 'console-badge-probing'" style="border-width: 1px;"><span class="console-pulse" :class="item.state === 'healthy' ? 'console-pulse-green' : item.state === 'tripped' ? 'console-pulse-red' : 'console-pulse-amber'"></span>{{ item.state }}</span></td>
+                        <td><span class="inline-flex items-center px-2 py-0.5 text-[10px] font-bold" :class="item.state === 'healthy' ? 'console-badge-healthy' : item.state === 'tripped' ? 'console-badge-tripped' : item.state === 'disabled' ? 'console-badge-tripped' : 'console-badge-probing'" style="border-width: 1px;"><span class="console-pulse" :class="item.state === 'healthy' ? 'console-pulse-green' : item.state === 'tripped' ? 'console-pulse-red' : item.state === 'disabled' ? 'console-pulse-red' : 'console-pulse-amber'"></span>{{ item.state }}</span></td>
                         <td><span class="console-mono text-[var(--text-accent)]">{{ item.protocol }}</span></td>
                         <td class="console-mono">{{ item.priority }}</td>
                         <td class="console-mono">{{ item.weight }}</td>
@@ -662,7 +664,7 @@ createApp({
     const editingBackendDraft = ref(null)
     const activeConfigSection = ref('basic')
 
-    const backendOptions = computed(() => config.value?.backends ?? [])
+    const backendOptions = computed(() => (config.value?.backends ?? []).filter(backendEnabled))
     const hasUnsavedChanges = computed(() => config.value ? JSON.stringify(config.value) !== configSnapshot.value : false)
     const activeTabMeta = computed(() => tabs.find(t => t.key === activeTab.value) || tabs[0])
 
@@ -727,6 +729,7 @@ createApp({
       if (!config.value?.backends?.[i]) return
       editingBackendIndex.value = i
       editingBackendDraft.value = JSON.parse(JSON.stringify(config.value.backends[i]))
+      if (editingBackendDraft.value.enabled === undefined || editingBackendDraft.value.enabled === null) editingBackendDraft.value.enabled = true
     }
     function cancelEditBackend() {
       editingBackendIndex.value = null
@@ -747,6 +750,9 @@ createApp({
       if (!editingBackendDraft.value?.models?.[mi]) return
       if (!confirm('确定删除 ' + (editingBackendDraft.value.models[mi]?.name || ('Model ' + (mi + 1))) + '？')) return
       editingBackendDraft.value.models.splice(mi, 1)
+    }
+    function backendEnabled(backend) {
+      return backend?.enabled !== false
     }
     function displayClientModel(item) { return item.request_model || '-' }
     function displayBackendModel(item) { return item.forwarded_model || item.response_model || '-' }
@@ -787,13 +793,17 @@ createApp({
       for (const b of config.value.backends) {
         if (!Array.isArray(b.models)) b.models = []
         if (!b.headers || typeof b.headers !== 'object') b.headers = {}
+        if (b.enabled === undefined || b.enabled === null) b.enabled = true
         b.protocol = b.protocol || 'openai'
         b.api_key = b.api_key ?? ''
         b.anthropic_version = b.anthropic_version ?? ''
         b.models.forEach(m => { if (!Array.isArray(m.aliases)) m.aliases = []; m.reasoning_default_effort = normalizeReasoningOverride(m.reasoning_default_effort); m.system_prompt = m.system_prompt ?? ''; m.name = m.name ?? '' })
       }
       setConfigSnapshot(); cancelEditBackend()
-      if (!testForm.backend && config.value.backends.length > 0) { testForm.backend = config.value.backends[0].name; testForm.model = config.value.backends[0].models[0]?.name ?? '' }
+      if (backendOptions.value.length > 0 && !backendOptions.value.some(item => item.name === testForm.backend)) {
+        testForm.backend = backendOptions.value[0].name
+        testForm.model = backendOptions.value[0].models[0]?.name ?? ''
+      }
     }
     async function loadStatus() { status.value = await api.getStatus() }
     async function loadLogs(notify) {
@@ -827,7 +837,7 @@ createApp({
       catch (e) { showToast(String(e), 'error') } finally { loading.value = false }
     }
     function addBackend() {
-      config.value?.backends.push({ name: 'new-backend', url: 'http://127.0.0.1:8000', protocol: 'openai', api_key: '', anthropic_version: '', headers: {}, models: [{ name: 'gpt-4o', aliases: ['claude-sonnet-4'], reasoning_default_effort: '', system_prompt: '' }], priority: 0, weight: 1 })
+      config.value?.backends.push({ name: 'new-backend', enabled: true, url: 'http://127.0.0.1:8000', protocol: 'openai', api_key: '', anthropic_version: '', headers: {}, models: [{ name: 'gpt-4o', aliases: ['claude-sonnet-4'], reasoning_default_effort: '', system_prompt: '' }], priority: 0, weight: 1 })
       showToast('已新增 Backend 草稿', 'info')
     }
     function removeBackend(i) {
@@ -852,7 +862,7 @@ createApp({
       addBackend, removeBackend,
       addProtocolOverride, removeProtocolOverride, availableProtocols,
       modelDefaultReferencesText, resolveEffectiveReasoning,
-      displayClientModel, displayBackendModel, displayProtocol,
+      displayClientModel, displayBackendModel, displayProtocol, backendEnabled,
       editingBackendIndex, editingBackendDraft, startEditBackend, cancelEditBackend, saveBackendDraft, addDraftModel, removeDraftModel,
     }
   }

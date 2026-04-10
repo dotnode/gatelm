@@ -90,6 +90,8 @@ backends:
 
   # ===== 示例 1：基础单后端 =====
   - name: my-openai
+    # 是否启用该 backend。未填写时默认为启用；显式 false 后不会参与路由、默认后端选择、前缀匹配和主动健康检查。
+    enabled: true
     url: "https://api.openai.com"
 
     # 后端协议：openai / anthropic / openai-responses

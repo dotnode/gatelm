@@ -65,12 +65,46 @@ func TestConsoleConfigGetAndStatus(t *testing.T) {
 		t.Fatalf("config status = %d", w.Code)
 	}
 
+	var cfgResp consoleConfigPayload
+	if err := json.Unmarshal(w.Body.Bytes(), &cfgResp); err != nil {
+		t.Fatalf("decode config response: %v body=%s", err, w.Body.String())
+	}
+	if len(cfgResp.Backends) != 1 {
+		t.Fatalf("expected one backend, got %d", len(cfgResp.Backends))
+	}
+	if !config.BackendEnabled(&cfgResp.Backends[0]) {
+		t.Fatal("expected backend without enabled field to default to enabled")
+	}
+
 	statusReq := httptest.NewRequest(http.MethodGet, "/console/api/status", nil)
 	statusReq.AddCookie(cookie)
 	statusW := httptest.NewRecorder()
 	mux.ServeHTTP(statusW, statusReq)
 	if statusW.Code != 200 {
 		t.Fatalf("status code = %d", statusW.Code)
+	}
+}
+
+func TestConsoleTestRejectsDisabledBackend(t *testing.T) {
+	disabled := false
+	cfg := config.Config{
+		Console: config.ConsoleConfig{Enabled: true, Password: "secret-pass"},
+		Backends: []config.Backend{{
+			Name: "b1", URL: "http://example.com", Protocol: "openai", Enabled: &disabled, Models: []config.Model{{Name: "gpt-4o"}},
+		}},
+	}
+	srv := New(cfg, nil, logging.NewDebugLog(false, ""), http.DefaultClient, NewHealthManager(HealthManagerConfig{}, http.DefaultClient, logging.NewDebugLog(false, "")), NewNoopObserver())
+	mux := http.NewServeMux()
+	srv.RegisterConsoleRoutes(mux)
+	cookie := loginConsole(t, mux, "/console", "secret-pass")
+
+	body := bytes.NewReader([]byte(`{"backend":"b1","model":"gpt-4o","path":"/v1/chat/completions","prompt":"ping"}`))
+	req := httptest.NewRequest(http.MethodPost, "/console/api/test", body)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for disabled backend, got %d body=%s", w.Code, w.Body.String())
 	}
 }
 

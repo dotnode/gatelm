@@ -380,29 +380,61 @@ func TestModelIndexDefaultMaxTokens(t *testing.T) {
 	}
 }
 
-func TestModelIndexNormalizeXHighReasoningEffort(t *testing.T) {
-	backends := []config.Backend{{
-		Name:     "test",
-		URL:      "http://localhost:8001",
-		Protocol: "openai",
-		Models: []config.Model{
-			{Name: "gpt-oss-120b", Aliases: []string{"my-model"}, NormalizeXHighReasoningEffort: true},
+func TestModelIndexSkipsDisabledBackends(t *testing.T) {
+	disabled := false
+	backends := []config.Backend{
+		{
+			Name:     "disabled-primary",
+			URL:      "http://localhost:8001",
+			Protocol: "openai",
+			Default:  true,
+			Enabled:  &disabled,
+			Models:   []config.Model{{Name: "gpt-4o", Aliases: []string{"shared-model"}}},
 		},
-	}}
-	idx := BuildModelIndex(backends)
-	candidates, found := idx.ResolveCandidates("my-model")
-	if !found || len(candidates) == 0 {
-		t.Fatal("expected candidates")
-	}
-	if !candidates[0].normalizeXHighReasoningEffort {
-		t.Fatal("expected normalizeXHighReasoningEffort = true")
+		{
+			Name:       "disabled-prefix",
+			URL:        "http://localhost:8002",
+			Protocol:   "openai",
+			PathPrefix: "/openai",
+			Enabled:    &disabled,
+			Models:     []config.Model{{Name: "gpt-4o"}},
+		},
+		{
+			Name:     "enabled-secondary",
+			URL:      "http://localhost:8003",
+			Protocol: "openai",
+			Priority: 2,
+			Models:   []config.Model{{Name: "gpt-4o", Aliases: []string{"shared-model"}}},
+		},
 	}
 
-	entries, found := idx.ResolveWithinBackend("my-model", &backends[0])
-	if !found || len(entries) == 0 {
-		t.Fatal("expected entries")
+	idx := BuildModelIndex(backends)
+
+	candidates, found := idx.ResolveCandidates("shared-model")
+	if !found || len(candidates) != 1 {
+		t.Fatalf("expected one enabled candidate, got found=%v len=%d", found, len(candidates))
 	}
-	if !entries[0].normalizeXHighReasoningEffort {
-		t.Fatal("expected ResolveWithinBackend normalizeXHighReasoningEffort = true")
+	if candidates[0].backend.Name != "enabled-secondary" {
+		t.Fatalf("expected enabled-secondary, got %s", candidates[0].backend.Name)
+	}
+	if def := idx.DefaultBackend(); def == nil || def.Name != "enabled-secondary" {
+		t.Fatalf("expected single enabled backend to become default, got %v", def)
+	}
+	if matched, ok := idx.MatchByPrefix("/openai/v1/chat/completions"); ok {
+		t.Fatalf("expected disabled prefix backend to be ignored, got %s", matched.Name)
+	}
+}
+
+func TestModelIndexSingleEnabledBackendBecomesDefault(t *testing.T) {
+	disabled := false
+	backends := []config.Backend{
+		{Name: "disabled", URL: "http://localhost:8001", Protocol: "openai", Enabled: &disabled},
+		{Name: "enabled", URL: "http://localhost:8002", Protocol: "openai"},
+	}
+
+	idx := BuildModelIndex(backends)
+	def := idx.DefaultBackend()
+	if def == nil || def.Name != "enabled" {
+		t.Fatalf("expected enabled backend as default, got %v", def)
 	}
 }

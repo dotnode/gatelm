@@ -629,6 +629,10 @@ func (s *Server) handleConsoleTest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "backend not found", http.StatusNotFound)
 		return
 	}
+	if !config.BackendEnabled(backend) {
+		http.Error(w, "backend is disabled", http.StatusBadRequest)
+		return
+	}
 	path := strings.TrimSpace(req.Path)
 	if path == "" {
 		path = "/v1/chat/completions"

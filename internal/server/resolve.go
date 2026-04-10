@@ -33,9 +33,14 @@ func BuildModelIndex(backends []config.Backend) *ModelIndex {
 	idx := &ModelIndex{
 		entries: make(map[string][]modelEntry),
 	}
+	enabledCount := 0
 
 	for i := range backends {
 		b := &backends[i]
+		if !config.BackendEnabled(b) {
+			continue
+		}
+		enabledCount++
 
 		if b.Default {
 			idx.defaultBackend = b
@@ -82,9 +87,14 @@ func BuildModelIndex(backends []config.Backend) *ModelIndex {
 		}
 	}
 
-	// If only one backend and no explicit default, treat it as default
-	if idx.defaultBackend == nil && len(backends) == 1 {
-		idx.defaultBackend = &backends[0]
+	// If only one enabled backend and no explicit default, treat it as default
+	if idx.defaultBackend == nil && enabledCount == 1 {
+		for i := range backends {
+			if config.BackendEnabled(&backends[i]) {
+				idx.defaultBackend = &backends[i]
+				break
+			}
+		}
 	}
 
 	return idx

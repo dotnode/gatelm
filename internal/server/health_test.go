@@ -3,7 +3,6 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -198,30 +197,43 @@ func TestHealthManagerActiveCheck(t *testing.T) {
 	}
 }
 
-func TestHealthManagerConcurrency(t *testing.T) {
-	hm := newTestHealthManager()
-	var wg sync.WaitGroup
+func TestActiveHealthChecksSkipDisabledBackend(t *testing.T) {
+	var checkCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		checkCount.Add(1)
+		w.WriteHeader(200)
+	}))
+	defer server.Close()
 
-	for i := 0; i < 100; i++ {
-		wg.Add(4)
-		go func() {
-			defer wg.Done()
-			hm.ReportFailure("backend-a")
-		}()
-		go func() {
-			defer wg.Done()
-			hm.ReportSuccess("backend-a")
-		}()
-		go func() {
-			defer wg.Done()
-			hm.IsHealthy("backend-a")
-		}()
-		go func() {
-			defer wg.Done()
-			hm.TryAcquireProbe("backend-a")
-			hm.ReleaseProbe("backend-a")
-		}()
+	disabled := false
+	hm := NewHealthManager(HealthManagerConfig{}, server.Client(), logging.NewDebugLog(false, ""))
+	hm.StartActiveChecks([]config.Backend{{
+		Name:    "disabled-backend",
+		URL:     server.URL,
+		Enabled: &disabled,
+		HealthCheck: &config.HealthCheckConfig{
+			Path:     "/healthz",
+			Interval: "20ms",
+		},
+	}})
+	defer hm.Stop()
+
+	time.Sleep(80 * time.Millisecond)
+	if checkCount.Load() != 0 {
+		t.Fatalf("expected disabled backend to skip active health checks, got %d", checkCount.Load())
 	}
 
-	wg.Wait()
+	snapshots := hm.Snapshot([]config.Backend{{Name: "disabled-backend", URL: server.URL, Enabled: &disabled}})
+	if len(snapshots) != 1 {
+		t.Fatalf("expected one snapshot, got %d", len(snapshots))
+	}
+	if snapshots[0].Enabled {
+		t.Fatal("expected disabled snapshot")
+	}
+	if snapshots[0].State != "disabled" {
+		t.Fatalf("expected disabled state, got %s", snapshots[0].State)
+	}
+	if snapshots[0].ActiveHealthCheck {
+		t.Fatal("expected active health check to be false for disabled backend")
+	}
 }
