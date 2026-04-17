@@ -231,10 +231,19 @@ func (hm *HealthManager) ReportFailure(name string) bool {
 }
 
 // StartActiveChecks launches goroutines for backends with health_check configured.
+// It also initializes health state for every enabled backend so that AllBackendsDown
+// reports accurately even when some backends have not served any traffic yet.
 func (hm *HealthManager) StartActiveChecks(backends []config.Backend) {
 	for i := range backends {
 		b := &backends[i]
-		if !config.BackendEnabled(b) || b.HealthCheck == nil || b.HealthCheck.Path == "" {
+		if !config.BackendEnabled(b) {
+			continue
+		}
+
+		// Ensure health state exists for every enabled backend, even without active checks.
+		hm.getOrCreate(b.Name)
+
+		if b.HealthCheck == nil || b.HealthCheck.Path == "" {
 			continue
 		}
 
@@ -244,9 +253,6 @@ func (hm *HealthManager) StartActiveChecks(backends []config.Backend) {
 				interval = d
 			}
 		}
-
-		// Ensure health state is initialized
-		hm.getOrCreate(b.Name)
 
 		hm.wg.Add(1)
 		go hm.activeCheckLoop(b, interval)

@@ -237,3 +237,30 @@ func TestActiveHealthChecksSkipDisabledBackend(t *testing.T) {
 		t.Fatal("expected active health check to be false for disabled backend")
 	}
 }
+
+// StartActiveChecks must seed health state for every enabled backend, even
+// those without an explicit health_check block. Otherwise AllBackendsDown
+// would only consider backends that happen to be in the map (e.g. one that
+// reported a failure), and report all-down while other enabled backends are
+// actually fine.
+func TestStartActiveChecksSeedsHealthStateForAllEnabled(t *testing.T) {
+	hm := NewHealthManager(HealthManagerConfig{}, http.DefaultClient, logging.NewDebugLog(false, ""))
+	backends := []config.Backend{
+		{Name: "b1", URL: "http://a", Protocol: "openai"},
+		{Name: "b2", URL: "http://b", Protocol: "openai"},
+	}
+	hm.StartActiveChecks(backends)
+	defer hm.Stop()
+
+	// Only b1 has ever failed; b2 was never touched by request traffic.
+	hm.ReportFailure("b1")
+
+	if hm.AllBackendsDown() {
+		t.Fatal("expected AllBackendsDown=false when b2 is still healthy")
+	}
+
+	hm.ReportFailure("b2")
+	if !hm.AllBackendsDown() {
+		t.Fatal("expected AllBackendsDown=true after both backends tripped")
+	}
+}
