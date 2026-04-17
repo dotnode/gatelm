@@ -348,7 +348,6 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
                       </div>
                     </div>
                     <div class="flex shrink-0 flex-wrap gap-2">
-                      <button class="console-button" :style="backendEnabled(backend) ? 'border-color: #fecaca; background: var(--bg-danger-soft); color: var(--text-danger);' : 'border-color: #bbf7d0; background: var(--bg-success-soft); color: var(--text-success);'" @click="toggleBackendEnabled(backendIndex)">{{ backendEnabled(backend) ? '快捷禁用' : '快捷启用' }}</button>
                       <button class="console-button" @click="startEditBackend(backendIndex)">编辑</button>
                       <button class="console-button" style="border-color: #fecaca; background: var(--bg-danger-soft); color: var(--text-danger);" @click="removeBackend(backendIndex)">删除 Backend</button>
                     </div>
@@ -742,22 +741,6 @@ createApp({
       cancelEditBackend()
       showToast('Backend 修改已加入待保存配置，点击“保存配置”后才会写入后端', 'success')
     }
-    function toggleBackendEnabled(i) {
-      const backend = config.value?.backends?.[i]
-      if (!backend) return
-      backend.enabled = !backendEnabled(backend)
-      if (!backendEnabled(backend) && editingBackendIndex.value === i) cancelEditBackend()
-      if (!backendEnabled(backend) && testForm.backend === backend.name) {
-        const next = backendOptions.value.find(item => item.name !== backend.name)
-        testForm.backend = next?.name || ''
-        testForm.model = next?.models?.[0]?.name ?? ''
-      }
-      if (backendEnabled(backend) && !testForm.backend) {
-        testForm.backend = backend.name || ''
-        testForm.model = backend.models?.[0]?.name ?? ''
-      }
-      showToast((backend.name || ('Backend ' + (i + 1))) + (backendEnabled(backend) ? ' 已加入待保存启用状态' : ' 已加入待保存禁用状态'), 'success')
-    }
     function addDraftModel() {
       if (!editingBackendDraft.value) return
       if (!Array.isArray(editingBackendDraft.value.models)) editingBackendDraft.value.models = []
@@ -876,7 +859,7 @@ createApp({
       tabs, configSections, reasoningOverrideOptions,
       removeToast, showToast, setActiveTab, setActiveConfigSection,
       login, logout, refreshAll, saveConfig, runTest, loadLogs, applyLogFilters, goToLogPage,
-      addBackend, removeBackend, toggleBackendEnabled,
+      addBackend, removeBackend,
       addProtocolOverride, removeProtocolOverride, availableProtocols,
       modelDefaultReferencesText, resolveEffectiveReasoning,
       displayClientModel, displayBackendModel, displayProtocol, backendEnabled,
