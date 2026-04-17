@@ -572,3 +572,38 @@ func TestStopCleanupIdempotent(t *testing.T) {
 		t.Fatal("second stopCleanup did not return")
 	}
 }
+
+// consoleStaticHandler must only serve HTML for basePath itself, not for
+// arbitrary subpaths — otherwise mistyped API calls are silently swallowed.
+func TestConsoleStaticHandlerRejectsSubpath(t *testing.T) {
+	cfg := config.Config{
+		Console: config.ConsoleConfig{Enabled: true, Password: "p"},
+		Backends: []config.Backend{{
+			Name: "b1", URL: "http://example.com", Protocol: "openai", Models: []config.Model{{Name: "gpt-4o"}},
+		}},
+	}
+	srv := New(cfg, nil, logging.NewDebugLog(false, ""), http.DefaultClient, NewHealthManager(HealthManagerConfig{}, http.DefaultClient, logging.NewDebugLog(false, "")), NewNoopObserver())
+	mux := http.NewServeMux()
+	srv.RegisterConsoleRoutes(mux)
+
+	rootReq := httptest.NewRequest(http.MethodGet, "/console", nil)
+	rootW := httptest.NewRecorder()
+	mux.ServeHTTP(rootW, rootReq)
+	if rootW.Code != http.StatusOK {
+		t.Fatalf("expected /console -> 200, got %d", rootW.Code)
+	}
+
+	subReq := httptest.NewRequest(http.MethodGet, "/console/does-not-exist", nil)
+	subW := httptest.NewRecorder()
+	mux.ServeHTTP(subW, subReq)
+	if subW.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown subpath, got %d body=%s", subW.Code, subW.Body.String())
+	}
+
+	apiReq := httptest.NewRequest(http.MethodGet, "/console/api/unknown", nil)
+	apiW := httptest.NewRecorder()
+	mux.ServeHTTP(apiW, apiReq)
+	if apiW.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown api path, got %d body=%s", apiW.Code, apiW.Body.String())
+	}
+}

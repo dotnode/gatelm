@@ -24,6 +24,13 @@ type consoleUIAssetSource struct {
 func (s *Server) consoleStaticHandler(basePath string) http.Handler {
 	basePath = normalizeConsoleBasePath(basePath)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Only serve index.html for the console root. Subtree paths that are
+		// not explicit API routes should 404 so mistyped API calls aren't
+		// silently swallowed by the SPA fallback and returned as HTML 200.
+		if r.URL.Path != basePath && r.URL.Path != basePath+"/" {
+			http.NotFound(w, r)
+			return
+		}
 		assets, err := resolveConsoleUIAssets()
 		if err != nil {
 			http.Error(w, "console ui not built", http.StatusServiceUnavailable)
