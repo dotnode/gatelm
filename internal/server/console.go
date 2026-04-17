@@ -360,6 +360,28 @@ func mergeBackendNode(oldValue, newValue *yaml.Node) {
 	mergeMappingKeyWithMerge(oldValue, newValue, "headers", mergeMappingEntriesNode)
 	mergeMappingKeyWithMerge(oldValue, newValue, "health_check", mergeMappingEntriesNode)
 	mergeMatchingChildComments(oldValue, newValue)
+	// Preserve any keys that existed on disk but are missing from the client
+	// payload — a partial PUT must not silently delete backend fields.
+	preserveMissingMappingKeys(oldValue, newValue)
+}
+
+// preserveMissingMappingKeys appends any (key, value) pairs from oldValue whose
+// keys do not appear in newValue. This keeps unknown-to-the-UI fields intact
+// when the console saves a config (defence against field drop on round-trip).
+func preserveMissingMappingKeys(oldValue, newValue *yaml.Node) {
+	if oldValue == nil || newValue == nil || oldValue.Kind != yaml.MappingNode || newValue.Kind != yaml.MappingNode {
+		return
+	}
+	present := make(map[string]bool, len(newValue.Content)/2)
+	for i := 0; i+1 < len(newValue.Content); i += 2 {
+		present[newValue.Content[i].Value] = true
+	}
+	for i := 0; i+1 < len(oldValue.Content); i += 2 {
+		if present[oldValue.Content[i].Value] {
+			continue
+		}
+		newValue.Content = append(newValue.Content, oldValue.Content[i], oldValue.Content[i+1])
+	}
 }
 
 func mergeModelsNode(oldValue, newValue *yaml.Node) {

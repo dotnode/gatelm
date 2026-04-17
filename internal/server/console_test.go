@@ -607,3 +607,26 @@ func TestConsoleStaticHandlerRejectsSubpath(t *testing.T) {
 		t.Fatalf("expected 404 for unknown api path, got %d body=%s", apiW.Code, apiW.Body.String())
 	}
 }
+
+// patchConfigYAML must preserve backend mapping keys that exist on disk but
+// are not produced by the Go-struct marshal path (e.g. forward-compatible
+// fields added directly in YAML).
+func TestPatchConfigYAMLPreservesUnknownBackendKeys(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	original := []byte("listen: ':8080'\nconsole:\n  enabled: true\n  password: p\nbackends:\n  - name: b1\n    url: http://example.com\n    protocol: openai\n    future_field: keepme\n    models:\n      - name: gpt-4o\n")
+	if err := os.WriteFile(configPath, original, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	body, err := patchConfigYAML(configPath, cfg)
+	if err != nil {
+		t.Fatalf("patchConfigYAML: %v", err)
+	}
+	if !bytes.Contains(body, []byte("future_field: keepme")) {
+		t.Fatalf("expected future_field preserved, got:\n%s", string(body))
+	}
+}
