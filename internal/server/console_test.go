@@ -444,3 +444,101 @@ func TestExtractIPTakesRightmostXFF(t *testing.T) {
 		t.Fatalf("expected remote host when proxy untrusted, got %q", got)
 	}
 }
+
+// GET /console/api/config must not leak the admin password back to the UI.
+func TestConsoleConfigGetRedactsPassword(t *testing.T) {
+	cfg := config.Config{
+		Console: config.ConsoleConfig{Enabled: true, Password: "super-secret"},
+		Backends: []config.Backend{{
+			Name: "b1", URL: "http://example.com", Protocol: "openai", Models: []config.Model{{Name: "gpt-4o"}},
+		}},
+	}
+	srv := New(cfg, nil, logging.NewDebugLog(false, ""), http.DefaultClient, NewHealthManager(HealthManagerConfig{}, http.DefaultClient, logging.NewDebugLog(false, "")), NewNoopObserver())
+	mux := http.NewServeMux()
+	srv.RegisterConsoleRoutes(mux)
+	cookie := loginConsole(t, mux, "/console", "super-secret")
+
+	req := httptest.NewRequest(http.MethodGet, "/console/api/config", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("get config code = %d", w.Code)
+	}
+	if bytes.Contains(w.Body.Bytes(), []byte("super-secret")) {
+		t.Fatalf("password leaked in GET response: %s", w.Body.String())
+	}
+	var payload consoleConfigPayload
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if payload.Console.Password != "" {
+		t.Fatalf("expected empty console.password in GET, got %q", payload.Console.Password)
+	}
+	if !payload.Console.Enabled {
+		t.Fatal("expected console.enabled=true to still be reported")
+	}
+}
+
+// PUT with a blank password must preserve the existing password rather than
+// erase it — the UI never receives the plaintext (see TestConsoleConfigGetRedactsPassword),
+// so an unchanged password must round-trip as an empty string in the payload.
+func TestConsoleConfigPutPreservesPasswordWhenBlank(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	original := []byte("listen: ':8080'\nconsole:\n  enabled: true\n  password: original-secret\nbackends:\n  - name: b1\n    url: http://example.com\n    protocol: openai\n    models:\n      - name: gpt-4o\n")
+	if err := os.WriteFile(configPath, original, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	srv := New(cfg, nil, logging.NewDebugLog(false, ""), http.DefaultClient, NewHealthManager(HealthManagerConfig{}, http.DefaultClient, logging.NewDebugLog(false, "")), NewNoopObserver())
+	srv.SetConfigPath(configPath)
+	mux := http.NewServeMux()
+	srv.RegisterConsoleRoutes(mux)
+	cookie := loginConsole(t, mux, "/console", "original-secret")
+
+	payload := consoleConfigPayload{
+		Listen:   ":9090",
+		Console:  config.ConsoleConfig{Enabled: true, Password: ""},
+		Backends: cfg.Backends,
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPut, "/console/api/config", bytes.NewReader(body))
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("PUT code = %d body=%s", w.Code, w.Body.String())
+	}
+
+	// Existing session must remain valid — an unchanged password should not
+	// trigger session revocation.
+	authReq := httptest.NewRequest(http.MethodGet, "/console/api/config", nil)
+	authReq.AddCookie(cookie)
+	authW := httptest.NewRecorder()
+	mux.ServeHTTP(authW, authReq)
+	if authW.Code != http.StatusOK {
+		t.Fatalf("config after blank-password PUT = %d; expected session to remain valid", authW.Code)
+	}
+
+	// Login with the preserved password must still succeed.
+	loginBody := bytes.NewReader([]byte(`{"password":"original-secret"}`))
+	loginReq := httptest.NewRequest(http.MethodPost, "/console/api/login", loginBody)
+	loginW := httptest.NewRecorder()
+	mux.ServeHTTP(loginW, loginReq)
+	if loginW.Code != http.StatusOK {
+		t.Fatalf("re-login with preserved password = %d body=%s", loginW.Code, loginW.Body.String())
+	}
+
+	// And the on-disk YAML still carries the original password.
+	persisted, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read persisted config: %v", err)
+	}
+	if !bytes.Contains(persisted, []byte("password: original-secret")) {
+		t.Fatalf("expected original password persisted, got:\n%s", string(persisted))
+	}
+}

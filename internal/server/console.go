@@ -150,6 +150,10 @@ func (s *Server) handleConsoleConfig(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleConsoleConfigGet(w http.ResponseWriter, r *http.Request) {
 	snap := s.snapshot()
+	// Scrub the password from the response; the UI is not allowed to read it back.
+	// A non-empty Password on PUT is treated as a change; empty means "keep existing".
+	redactedConsole := snap.cfg.Console
+	redactedConsole.Password = ""
 	writeJSON(w, http.StatusOK, consoleConfigPayload{
 		Listen:                snap.cfg.Listen,
 		Debug:                 snap.cfg.Debug,
@@ -159,7 +163,7 @@ func (s *Server) handleConsoleConfigGet(w http.ResponseWriter, r *http.Request) 
 		APIKeys:               snap.cfg.APIKeys,
 		ModelDefaults:         snap.cfg.ModelDefaults,
 		CircuitBreaker:        snap.cfg.CircuitBreaker,
-		Console:               snap.cfg.Console,
+		Console:               redactedConsole,
 		TrustedProxies:        snap.cfg.TrustedProxies,
 	})
 }
@@ -174,6 +178,11 @@ func (s *Server) handleConsoleConfigPut(w http.ResponseWriter, r *http.Request) 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "invalid json body", http.StatusBadRequest)
 		return
+	}
+	// Empty password on PUT means "keep existing" — this pairs with the GET
+	// redaction so the plaintext password never needs to round-trip through the UI.
+	if strings.TrimSpace(payload.Console.Password) == "" {
+		payload.Console.Password = snap.cfg.Console.Password
 	}
 	cfg := config.Config{
 		Listen:                payload.Listen,
