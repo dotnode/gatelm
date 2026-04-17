@@ -31,21 +31,22 @@ const maxStreamLogSize = 32 * 1024    // 32 KB
 const maxResponseBodySize = 100 << 20 // 100 MB – caps fallback (non-flusher) response reads
 
 type Server struct {
-	mu            sync.RWMutex
-	Cfg           config.Config
-	ConfigPath    string
-	ModelIndex    *ModelIndex
-	TokenLog      *logging.TokenLogger
-	Debug         *logging.DebugLog
-	Client        *http.Client
-	Health        *HealthManager
-	Selector      *BackendSelector
-	Observer      Observer
-	Codecs        map[string]ProtocolCodec // protocol name → codec
-	loginAttempts sync.Map                 // ip -> *loginAttempt (for console rate limiting)
-	sessions      sync.Map                 // token -> *sessionEntry (for console sessions)
-	cleanupStop   chan struct{}            // signals the cleanup goroutine to exit
-	cleanupDone   chan struct{}            // closed when the cleanup goroutine exits
+	mu              sync.RWMutex
+	Cfg             config.Config
+	ConfigPath      string
+	ModelIndex      *ModelIndex
+	TokenLog        *logging.TokenLogger
+	Debug           *logging.DebugLog
+	Client          *http.Client
+	Health          *HealthManager
+	Selector        *BackendSelector
+	Observer        Observer
+	Codecs          map[string]ProtocolCodec // protocol name → codec
+	loginAttempts   sync.Map                 // ip -> *loginAttempt (for console rate limiting)
+	sessions        sync.Map                 // token -> *sessionEntry (for console sessions)
+	cleanupStop     chan struct{}            // signals the cleanup goroutine to exit
+	cleanupDone     chan struct{}            // closed when the cleanup goroutine exits
+	cleanupStopOnce sync.Once                // guards close(cleanupStop) against double-close
 }
 
 func shouldNormalizeReasoningEffortAlias(protocol string, normalize bool, body []byte) []byte {

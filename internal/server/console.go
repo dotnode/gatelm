@@ -999,7 +999,9 @@ func (s *Server) cleanupLoop() {
 }
 
 func (s *Server) stopCleanup() {
-	close(s.cleanupStop)
+	s.cleanupStopOnce.Do(func() {
+		close(s.cleanupStop)
+	})
 	<-s.cleanupDone
 }
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/dotnode/gatelm/internal/config"
 	"github.com/dotnode/gatelm/internal/logging"
@@ -540,5 +541,34 @@ func TestConsoleConfigPutPreservesPasswordWhenBlank(t *testing.T) {
 	}
 	if !bytes.Contains(persisted, []byte("password: original-secret")) {
 		t.Fatalf("expected original password persisted, got:\n%s", string(persisted))
+	}
+}
+
+// stopCleanup must be safe to call more than once (e.g. on both signal handler
+// and explicit Close) — a second close(cleanupStop) previously panicked.
+func TestStopCleanupIdempotent(t *testing.T) {
+	cfg := config.Config{
+		Console: config.ConsoleConfig{Enabled: true, Password: "p"},
+		Backends: []config.Backend{{
+			Name: "b1", URL: "http://example.com", Protocol: "openai", Models: []config.Model{{Name: "gpt-4o"}},
+		}},
+	}
+	srv := New(cfg, nil, logging.NewDebugLog(false, ""), http.DefaultClient, NewHealthManager(HealthManagerConfig{}, http.DefaultClient, logging.NewDebugLog(false, "")), NewNoopObserver())
+	srv.stopCleanup()
+
+	done := make(chan struct{})
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("second stopCleanup panicked: %v", r)
+			}
+			close(done)
+		}()
+		srv.stopCleanup()
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("second stopCleanup did not return")
 	}
 }
