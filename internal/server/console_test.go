@@ -426,3 +426,21 @@ func TestSaveAndReloadConfigRejectsInvalidConfigWithoutOverwrite(t *testing.T) {
 		t.Fatalf("expected config file unchanged after failed save\nwant:\n%s\n\ngot:\n%s", string(original), string(after))
 	}
 }
+
+// extractIP must take the rightmost XFF entry when the direct remote address
+// is a trusted proxy, so a client-supplied leftmost hop cannot forge a fresh
+// IP and bypass the per-IP login rate limit.
+func TestExtractIPTakesRightmostXFF(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "10.0.0.1:1000"
+	req.Header.Set("X-Forwarded-For", "1.2.3.4, 5.6.7.8")
+
+	if got := extractIP(req, []string{"10.0.0.1"}); got != "5.6.7.8" {
+		t.Fatalf("expected rightmost XFF entry, got %q", got)
+	}
+
+	// With no trusted proxies, XFF must be ignored entirely.
+	if got := extractIP(req, nil); got != "10.0.0.1" {
+		t.Fatalf("expected remote host when proxy untrusted, got %q", got)
+	}
+}

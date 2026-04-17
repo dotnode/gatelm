@@ -921,6 +921,9 @@ func (s *Server) checkLoginRateLimit(ip string) bool {
 // extractIP extracts the client IP from the request.
 // Proxy headers (X-Forwarded-For, X-Real-IP) are only trusted when the
 // direct remote address matches one of the configured trusted proxies.
+// For X-Forwarded-For we take the rightmost entry (the one added by the
+// direct trusted proxy) so that a client-supplied leftmost hop cannot
+// spoof a fresh IP to bypass per-IP rate limiting.
 func extractIP(r *http.Request, trustedProxies []string) string {
 	remoteHost, _, _ := net.SplitHostPort(r.RemoteAddr)
 	if remoteHost == "" {
@@ -929,10 +932,11 @@ func extractIP(r *http.Request, trustedProxies []string) string {
 
 	if isTrustedProxy(remoteHost, trustedProxies) {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			if idx := strings.Index(xff, ","); idx > 0 {
-				return strings.TrimSpace(xff[:idx])
+			parts := strings.Split(xff, ",")
+			last := strings.TrimSpace(parts[len(parts)-1])
+			if last != "" {
+				return last
 			}
-			return strings.TrimSpace(xff)
 		}
 		if xri := r.Header.Get("X-Real-IP"); xri != "" {
 			return strings.TrimSpace(xri)
