@@ -130,12 +130,13 @@ func runInteractiveSetup(configPath string) (*gatelm.Config, error) {
 }
 
 // writeConfigFile marshals config to YAML and writes to disk.
+// Mode 0600 because the file may contain backend API keys and the console password.
 func writeConfigFile(path string, cfg *gatelm.Config) error {
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return os.WriteFile(path, data, 0o600)
 }
 
 func defaultAnthropicVersion(protocol string) string {

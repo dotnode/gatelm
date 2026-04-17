@@ -50,3 +50,20 @@ func testConfig() gatelm.Config {
 		}},
 	}
 }
+
+// The generated config file may contain backend API keys and the console
+// password, so it must be written with 0600 permissions.
+func TestWriteConfigFilePermissionsAre0600(t *testing.T) {
+	path := t.TempDir() + "/config.yaml"
+	cfg := testConfig()
+	if err := writeConfigFile(path, &cfg); err != nil {
+		t.Fatalf("writeConfigFile: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("expected 0600 permissions on generated config (contains secrets), got %o", got)
+	}
+}
