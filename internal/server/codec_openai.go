@@ -779,13 +779,13 @@ type openaiChatStreamEncoder struct {
 	debug *logging.DebugLog
 
 	// state
-	id              string
-	model           string
-	chunkIndex      int
-	textStarted      bool
-	toolCalls       map[int]*chatEncoderToolCall
-	finishReason    string
-	usage           struct {
+	id           string
+	model        string
+	chunkIndex   int
+	textStarted  bool
+	toolCalls    map[int]*chatEncoderToolCall
+	finishReason string
+	usage        struct {
 		promptTokens     int
 		completionTokens int
 	}
@@ -971,7 +971,15 @@ func (e *openaiChatStreamEncoder) Encode(event CanonicalEvent) error {
 func (e *openaiChatStreamEncoder) Close() error {
 	// Send finish chunk
 	finishReason := e.finishReason
-	if len(e.toolCalls) > 0 && finishReason == "" {
+	// e.toolCalls is populated live from response.output_item.added events as
+	// the stream is relayed, so it's a reliable tool-call signal regardless
+	// of backend protocol — unlike extractCompletedInfo's output-field check,
+	// which some backend decoders (e.g. for openai/anthropic backends) never
+	// populate on response.completed. A tool call must always be reported
+	// unless the response was truncated (status "incomplete" → "length"),
+	// which takes priority since it's more informative than "tool_calls" for
+	// a call that may itself be incomplete.
+	if len(e.toolCalls) > 0 && finishReason != "length" {
 		finishReason = "tool_calls"
 	}
 	if finishReason == "" {
