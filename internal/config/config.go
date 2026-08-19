@@ -47,6 +47,12 @@ type CircuitBreakerConfig struct {
 type ConsoleConfig struct {
 	Enabled  bool   `yaml:"enabled" json:"enabled"`
 	Password string `yaml:"password" json:"password"`
+	// RawPassword holds the pre-expansion password (e.g. "${CONSOLE_PASSWORD}")
+	// as written in the YAML file, before NormalizeAndValidate expands env vars
+	// into Password. It's kept out of YAML/JSON so it never round-trips through
+	// the console UI; SaveAndReloadConfig uses it to avoid baking the expanded
+	// plaintext password back onto disk when the admin didn't intend to change it.
+	RawPassword string `yaml:"-" json:"-"`
 }
 
 type Backend struct {
@@ -104,6 +110,7 @@ func NormalizeAndValidate(cfg Config) (Config, error) {
 		return Config{}, errors.New("backends is empty")
 	}
 
+	cfg.Console.RawPassword = cfg.Console.Password
 	cfg.Console.Password = strings.TrimSpace(os.Expand(cfg.Console.Password, os.Getenv))
 	if cfg.Console.Enabled && cfg.Console.Password == "" {
 		return Config{}, errors.New("console.password is required when console.enabled=true")
