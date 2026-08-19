@@ -19,6 +19,15 @@ func newTestHealthManager() *HealthManager {
 	}, http.DefaultClient, logging.NewDebugLog(false, ""))
 }
 
+// Stop() must be safe to call more than once — a caller closing the server
+// through more than one path (e.g. direct Server.Close() plus a wrapper that
+// already stopped it) must not panic on a double close(stopCh).
+func TestHealthManagerStopIsIdempotent(t *testing.T) {
+	hm := newTestHealthManager()
+	hm.Stop()
+	hm.Stop()
+}
+
 func TestHealthManagerPassiveFailure(t *testing.T) {
 	hm := newTestHealthManager()
 

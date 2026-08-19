@@ -41,6 +41,7 @@ type HealthManager struct {
 	client   *http.Client
 	debug    *logging.DebugLog
 	stopCh   chan struct{}
+	stopOnce sync.Once
 	wg       sync.WaitGroup
 	nowFunc  func() time.Time // for testing
 }
@@ -77,6 +78,47 @@ func NewHealthManager(cfg HealthManagerConfig, client *http.Client, debug *loggi
 		debug:    debug,
 		stopCh:   make(chan struct{}),
 		nowFunc:  time.Now,
+	}
+}
+
+// adoptState copies circuit-breaker state (state, consecutiveFails,
+// lastFailTime, halfOpenInFlight) from old into hm for every backend name old
+// knows about. Used on config reload: a fresh HealthManager otherwise starts
+// every backend as healthy, which would silently un-trip a circuit breaker
+// for a backend that's still actively failing just because an admin saved an
+// unrelated config change.
+func (hm *HealthManager) adoptState(old *HealthManager) {
+	if old == nil {
+		return
+	}
+	old.mu.RLock()
+	names := make([]string, 0, len(old.backends))
+	for name := range old.backends {
+		names = append(names, name)
+	}
+	old.mu.RUnlock()
+
+	for _, name := range names {
+		old.mu.RLock()
+		oldBH := old.backends[name]
+		old.mu.RUnlock()
+		if oldBH == nil {
+			continue
+		}
+		oldBH.mu.RLock()
+		state := oldBH.state
+		consecutiveFails := oldBH.consecutiveFails
+		lastFailTime := oldBH.lastFailTime
+		halfOpenInFlight := oldBH.halfOpenInFlight
+		oldBH.mu.RUnlock()
+
+		newBH := hm.getOrCreate(name)
+		newBH.mu.Lock()
+		newBH.state = state
+		newBH.consecutiveFails = consecutiveFails
+		newBH.lastFailTime = lastFailTime
+		newBH.halfOpenInFlight = halfOpenInFlight
+		newBH.mu.Unlock()
 	}
 }
 
@@ -345,10 +387,14 @@ func (hm *HealthManager) Snapshot(backends []config.Backend) []BackendHealthSnap
 	return result
 }
 
-// Stop shuts down all active check goroutines.
+// Stop shuts down all active check goroutines. Safe to call more than once
+// (e.g. if a caller Close()s the server directly as well as through a
+// wrapper that already stopped it) — only the first call closes stopCh.
 func (hm *HealthManager) Stop() {
-	close(hm.stopCh)
-	hm.wg.Wait()
+	hm.stopOnce.Do(func() {
+		close(hm.stopCh)
+		hm.wg.Wait()
+	})
 }
 
 // AllBackendsDown returns true if all known backends are in tripped state.
