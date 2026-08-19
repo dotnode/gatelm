@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -314,11 +315,17 @@ func (s *Server) wsPerBackendSSEFallback(
 	snap.health.ReportSuccess(backend.Name)
 	s.Debug.Printf("[%s] ws→sse fallback: backend %s connected (status=%d), relaying SSE→WS", reqID, backend.Name, resp.StatusCode)
 
-	usage := s.relaySSEToWS(clientConn, resp.Body, reqID)
+	usage, streamErr := s.relaySSEToWS(clientConn, resp.Body, reqID)
 	resp.Body.Close()
 
 	writeWSClose(clientConn, websocket.CloseNormalClosure, "")
 
+	errCat := "success"
+	errMsg := ""
+	if streamErr != nil {
+		errCat = "stream_error"
+		errMsg = streamErr.Error()
+	}
 	s.logUsage(logging.UsageLog{
 		Backend:          backend.Name,
 		ClientProtocol:   clientProtocol,
@@ -334,15 +341,21 @@ func (s *Server) wsPerBackendSSEFallback(
 		TotalTokens:      usage.TotalTokens,
 		InputTokens:      usage.InputTokens,
 		OutputTokens:     usage.OutputTokens,
-	}, start, reqID, 0, "success")
+		Error:            errMsg,
+	}, start, reqID, 0, errCat)
 
 	s.Debug.Printf("[%s] ws→sse fallback: completed via %s, duration=%s usage=%+v", reqID, backend.Name, time.Since(start), usage)
+	// Data was already relayed to the client (even if truncated), so we
+	// can't retry another backend at this point.
 	return true
 }
 
 // relaySSEToWS reads an HTTP SSE stream and forwards each data event as a
-// WebSocket text message. Returns extracted usage info from completion events.
-func (s *Server) relaySSEToWS(clientConn *websocket.Conn, body interface{ Read([]byte) (int, error) }, reqID string) logging.UsageInfo {
+// WebSocket text message. Returns extracted usage info from completion
+// events, and a non-nil error if the SSE stream ended abnormally (e.g. a
+// line exceeded the scanner's buffer and was truncated) rather than at a
+// clean [DONE]/EOF boundary.
+func (s *Server) relaySSEToWS(clientConn *websocket.Conn, body interface{ Read([]byte) (int, error) }, reqID string) (logging.UsageInfo, error) {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
@@ -375,11 +388,25 @@ func (s *Server) relaySSEToWS(clientConn *websocket.Conn, body interface{ Read([
 		}
 	}
 
+	// A scan error (most commonly bufio.ErrTooLong for an oversized line)
+	// must not be treated as a clean end-of-stream — tell the client
+	// explicitly instead of silently ending the WS message stream as if it
+	// had completed normally.
 	if err := scanner.Err(); err != nil {
 		s.Debug.Printf("[%s] ws-http-fallback: SSE read error: %v", reqID, err)
+		errMsg := "upstream stream read error: " + err.Error()
+		if errors.Is(err, bufio.ErrTooLong) {
+			errMsg = "upstream response line exceeded max buffered size (1MB); response was truncated"
+		}
+		errData, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]any{"message": errMsg}})
+		clientConn.SetWriteDeadline(time.Now().Add(wsWriteDeadline))
+		if writeErr := clientConn.WriteMessage(websocket.TextMessage, errData); writeErr != nil {
+			s.Debug.Printf("[%s] ws-http-fallback: client write error while reporting stream error: %v", reqID, writeErr)
+		}
+		return usage, err
 	}
 
-	return usage
+	return usage, nil
 }
 
 // unwrapWSEnvelope strips WebSocket-specific fields from a WS message body
@@ -548,6 +575,35 @@ func (s *Server) wsDialAndRelay(
 	setupPingPong(clientConn)
 	setupPingPong(backendConn)
 
+	// gorilla/websocket permits only one concurrent writer per connection.
+	// The relay goroutines below and the ping tickers both write to clientConn
+	// and backendConn, so every write (including SetWriteDeadline, which is an
+	// unsynchronized field on *websocket.Conn) must go through these
+	// mutex-guarded helpers rather than calling the conn methods directly.
+	var clientWriteMu, backendWriteMu sync.Mutex
+	writeClient := func(mt int, data []byte) error {
+		clientWriteMu.Lock()
+		defer clientWriteMu.Unlock()
+		clientConn.SetWriteDeadline(time.Now().Add(wsWriteDeadline))
+		return clientConn.WriteMessage(mt, data)
+	}
+	writeBackend := func(mt int, data []byte) error {
+		backendWriteMu.Lock()
+		defer backendWriteMu.Unlock()
+		backendConn.SetWriteDeadline(time.Now().Add(wsWriteDeadline))
+		return backendConn.WriteMessage(mt, data)
+	}
+	pingClient := func() error {
+		clientWriteMu.Lock()
+		defer clientWriteMu.Unlock()
+		return clientConn.WriteControl(websocket.PingMessage, nil, time.Now().Add(wsWriteDeadline))
+	}
+	pingBackend := func() error {
+		backendWriteMu.Lock()
+		defer backendWriteMu.Unlock()
+		return backendConn.WriteControl(websocket.PingMessage, nil, time.Now().Add(wsWriteDeadline))
+	}
+
 	// Backend → Client relay
 	wg.Add(1)
 	go func() {
@@ -577,8 +633,7 @@ func (s *Server) wsDialAndRelay(
 				usageMu.Unlock()
 			}
 
-			clientConn.SetWriteDeadline(time.Now().Add(wsWriteDeadline))
-			if writeErr := clientConn.WriteMessage(mt, msg); writeErr != nil {
+			if writeErr := writeClient(mt, msg); writeErr != nil {
 				s.Debug.Printf("[%s] websocket client write error: %v", reqID, writeErr)
 				return
 			}
@@ -599,17 +654,26 @@ func (s *Server) wsDialAndRelay(
 				return
 			}
 
-			backendConn.SetWriteDeadline(time.Now().Add(wsWriteDeadline))
-			if writeErr := backendConn.WriteMessage(mt, msg); writeErr != nil {
+			if writeErr := writeBackend(mt, msg); writeErr != nil {
 				s.Debug.Printf("[%s] websocket backend write error: %v", reqID, writeErr)
 				return
 			}
 		}
 	}()
 
-	// Start ping tickers
-	go wsPingTicker(ctx, clientConn)
-	go wsPingTicker(ctx, backendConn)
+	// Start ping tickers. These are tracked by wg (like the relay goroutines)
+	// so that wg.Wait() below guarantees no goroutine is still writing to
+	// clientConn when writeWSClose is called after it.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		wsPingTicker(ctx, pingClient)
+	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		wsPingTicker(ctx, pingBackend)
+	}()
 
 	// When one side exits, close the backend conn and set a short read deadline
 	// on the client conn to unblock both goroutines.
@@ -621,7 +685,7 @@ func (s *Server) wsDialAndRelay(
 		clientConn.SetReadDeadline(time.Now())
 	}()
 
-	// Wait for both relay goroutines to finish
+	// Wait for both relay goroutines and both ping tickers to finish
 	wg.Wait()
 
 	// Forward backend close frame to client only when data was already relayed
@@ -797,8 +861,11 @@ func setupPingPong(conn *websocket.Conn) {
 	})
 }
 
-// wsPingTicker sends periodic pings to keep the connection alive.
-func wsPingTicker(ctx context.Context, conn *websocket.Conn) {
+// wsPingTicker sends periodic pings to keep the connection alive. ping writes
+// a single ping control frame and must be safe to call concurrently with any
+// other writer on the same connection (i.e. it should hold that connection's
+// write mutex, since gorilla/websocket allows only one writer at a time).
+func wsPingTicker(ctx context.Context, ping func() error) {
 	ticker := time.NewTicker(wsPingInterval)
 	defer ticker.Stop()
 	for {
@@ -806,8 +873,7 @@ func wsPingTicker(ctx context.Context, conn *websocket.Conn) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			conn.SetWriteDeadline(time.Now().Add(wsWriteDeadline))
-			if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(wsWriteDeadline)); err != nil {
+			if err := ping(); err != nil {
 				return
 			}
 		}

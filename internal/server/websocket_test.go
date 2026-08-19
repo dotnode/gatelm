@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -409,7 +410,11 @@ func TestWebSocketModelRouting(t *testing.T) {
 }
 
 func TestRelaySSEToWS(t *testing.T) {
-	// Create a real WS server/client pair for testing
+	// Create a real WS server/client pair for testing. received is written
+	// by the handler goroutine below and read by this test goroutine after
+	// the close handshake, so it needs a mutex — without one, -race flags an
+	// unsynchronized read/write race between the two goroutines.
+	var receivedMu sync.Mutex
 	var received []string
 	wsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
@@ -426,7 +431,9 @@ func TestRelaySSEToWS(t *testing.T) {
 			if err != nil {
 				break
 			}
+			receivedMu.Lock()
 			received = append(received, string(msg))
+			receivedMu.Unlock()
 		}
 	}))
 	defer wsServer.Close()
@@ -451,7 +458,10 @@ func TestRelaySSEToWS(t *testing.T) {
 	debugLog := logging.NewDebugLog(false, "")
 	srv := &Server{Debug: debugLog}
 
-	usage := srv.relaySSEToWS(clientConn, strings.NewReader(sseData), "test-req")
+	usage, err := srv.relaySSEToWS(clientConn, strings.NewReader(sseData), "test-req")
+	if err != nil {
+		t.Fatalf("relaySSEToWS returned unexpected error: %v", err)
+	}
 
 	// Close WS so server collects messages
 	clientConn.WriteControl(websocket.CloseMessage,
@@ -471,6 +481,9 @@ func TestRelaySSEToWS(t *testing.T) {
 	}
 
 	// Verify WS messages received by server (3 data events, [DONE] skipped)
+	receivedMu.Lock()
+	received = append([]string(nil), received...)
+	receivedMu.Unlock()
 	if len(received) != 3 {
 		t.Fatalf("expected 3 WS messages, got %d: %v", len(received), received)
 	}
@@ -579,12 +592,12 @@ func TestBuildHTTPFallbackRequest(t *testing.T) {
 		Method: "GET",
 		URL:    &url.URL{Path: "/v1/responses", RawQuery: "beta=true"},
 		Header: http.Header{
-			"Connection":              []string{"Upgrade"},
-			"Upgrade":                 []string{"websocket"},
-			"Sec-Websocket-Key":       []string{"test-key"},
-			"Sec-Websocket-Version":   []string{"13"},
-			"Authorization":           []string{"Bearer sk-test"},
-			"X-Custom":                []string{"keep-me"},
+			"Connection":            []string{"Upgrade"},
+			"Upgrade":               []string{"websocket"},
+			"Sec-Websocket-Key":     []string{"test-key"},
+			"Sec-Websocket-Version": []string{"13"},
+			"Authorization":         []string{"Bearer sk-test"},
+			"X-Custom":              []string{"keep-me"},
 		},
 	}
 
