@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/dotnode/gatelm/internal/logging"
@@ -136,6 +137,24 @@ func convertStream(
 		}
 	}
 
+	// A scan error (most commonly bufio.ErrTooLong when a single SSE line
+	// exceeds the 1MB buffer, e.g. a huge tool-call argument or base64 blob)
+	// must not be treated as a clean end-of-stream: silently falling through
+	// to the normal Flush()/Close() path below would emit a "completed"
+	// event as if nothing were wrong, hiding the truncation from the client.
+	if scanErr := scanner.Err(); scanErr != nil {
+		debug.Printf("[%s] stream scanner error: %v", reqID, scanErr)
+		_, usage := decoder.Flush()
+		errMsg := "upstream stream read error: " + scanErr.Error()
+		if errors.Is(scanErr, bufio.ErrTooLong) {
+			errMsg = "upstream response line exceeded max buffered size (1MB); response was truncated"
+		}
+		errData, _ := json.Marshal(map[string]any{"error": map[string]any{"message": errMsg}})
+		_ = encoder.Encode(CanonicalEvent{EventType: "error", Data: errData})
+		encoder.Close()
+		return usage, scanErr
+	}
+
 	finalEvents, usage := decoder.Flush()
 	for _, evt := range finalEvents {
 		if err := encoder.Encode(evt); err != nil {
@@ -143,10 +162,6 @@ func convertStream(
 		}
 	}
 	encoder.Close()
-
-	if err := scanner.Err(); err != nil {
-		debug.Printf("[%s] stream scanner error: %v", reqID, err)
-	}
 
 	return usage, nil
 }
