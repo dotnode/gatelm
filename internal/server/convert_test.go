@@ -1470,3 +1470,207 @@ func TestConvertResponsesWithReasoning(t *testing.T) {
 		}
 	})
 }
+
+// Anthropic's extended thinking feature requires the exact thinking text and
+// its signature to be replayed unmodified in a later turn. These tests cover
+// the full round trip: an Anthropic response's thinking/redacted_thinking
+// block must survive being turned into a canonical "reasoning" item and back
+// into an Anthropic request, via the tagged encrypted_content payload.
+
+func TestAnthropicThinkingPayloadRoundTrip(t *testing.T) {
+	p := anthropicThinkingPayload{Type: "thinking", Thinking: "let me think", Signature: "sig-abc"}
+	encoded := encodeAnthropicThinkingPayload(p)
+	if encoded == "" {
+		t.Fatal("expected non-empty encoded payload")
+	}
+	decoded, ok := decodeAnthropicThinkingPayload(encoded)
+	if !ok {
+		t.Fatal("expected decode to succeed")
+	}
+	if decoded != p {
+		t.Fatalf("decoded payload = %+v, want %+v", decoded, p)
+	}
+
+	redacted := anthropicThinkingPayload{Type: "redacted_thinking", Data: "opaque-bytes"}
+	encoded = encodeAnthropicThinkingPayload(redacted)
+	decoded, ok = decodeAnthropicThinkingPayload(encoded)
+	if !ok || decoded != redacted {
+		t.Fatalf("redacted round trip failed: decoded=%+v ok=%v", decoded, ok)
+	}
+
+	// A string gatelm didn't produce itself (e.g. a real OpenAI reasoning
+	// model's own encrypted_content, or plain garbage) must not be mistaken
+	// for a valid payload.
+	for _, bad := range []string{"", "garbage", "gatelm-anthropic-thinking-v1:not-base64!!"} {
+		if _, ok := decodeAnthropicThinkingPayload(bad); ok {
+			t.Fatalf("expected decode to fail for %q", bad)
+		}
+	}
+}
+
+func TestConvertAnthropicResponseToResponsesPreservesThinkingSignature(t *testing.T) {
+	input := []byte(`{
+		"id": "msg_1", "model": "claude-3-opus", "role": "assistant",
+		"content": [
+			{"type": "thinking", "thinking": "I should check the weather.", "signature": "sig-xyz"},
+			{"type": "text", "text": "It's sunny."}
+		],
+		"stop_reason": "end_turn",
+		"usage": {"input_tokens": 5, "output_tokens": 10}
+	}`)
+	out, err := convertAnthropicResponseToResponses(input, 200)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal(out, &result); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+	output := result["output"].([]any)
+	if len(output) != 2 {
+		t.Fatalf("expected 2 output items, got %d: %+v", len(output), output)
+	}
+	reasoning := output[0].(map[string]any)
+	if reasoning["type"] != "reasoning" {
+		t.Fatalf("first item type = %v, want reasoning", reasoning["type"])
+	}
+	summary := reasoning["summary"].([]any)
+	if len(summary) != 1 || summary[0].(map[string]any)["text"] != "I should check the weather." {
+		t.Fatalf("unexpected summary: %+v", summary)
+	}
+	encryptedContent, _ := reasoning["encrypted_content"].(string)
+	payload, ok := decodeAnthropicThinkingPayload(encryptedContent)
+	if !ok {
+		t.Fatalf("expected encrypted_content to decode, got %q", encryptedContent)
+	}
+	if payload.Type != "thinking" || payload.Thinking != "I should check the weather." || payload.Signature != "sig-xyz" {
+		t.Fatalf("unexpected decoded payload: %+v", payload)
+	}
+}
+
+func TestConvertAnthropicResponseToResponsesPreservesRedactedThinking(t *testing.T) {
+	input := []byte(`{
+		"id": "msg_2", "model": "claude-3-opus", "role": "assistant",
+		"content": [
+			{"type": "redacted_thinking", "data": "opaque-redacted-bytes"},
+			{"type": "text", "text": "Here's my answer."}
+		],
+		"stop_reason": "end_turn",
+		"usage": {"input_tokens": 5, "output_tokens": 10}
+	}`)
+	out, err := convertAnthropicResponseToResponses(input, 200)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var result map[string]any
+	json.Unmarshal(out, &result)
+	output := result["output"].([]any)
+	reasoning := output[0].(map[string]any)
+	if reasoning["type"] != "reasoning" {
+		t.Fatalf("first item type = %v, want reasoning", reasoning["type"])
+	}
+	payload, ok := decodeAnthropicThinkingPayload(reasoning["encrypted_content"].(string))
+	if !ok || payload.Type != "redacted_thinking" || payload.Data != "opaque-redacted-bytes" {
+		t.Fatalf("unexpected decoded payload: %+v ok=%v", payload, ok)
+	}
+}
+
+func TestConvertResponsesRequestToAnthropicReconstructsThinkingBlock(t *testing.T) {
+	encryptedContent := encodeAnthropicThinkingPayload(anthropicThinkingPayload{
+		Type: "thinking", Thinking: "Let me reason about this.", Signature: "sig-123",
+	})
+	reqBody, _ := json.Marshal(map[string]any{
+		"model": "claude-3-opus",
+		"input": []any{
+			map[string]any{
+				"type":              "reasoning",
+				"summary":           []any{map[string]any{"type": "summary_text", "text": "Let me reason about this."}},
+				"encrypted_content": encryptedContent,
+			},
+			map[string]any{"type": "message", "role": "user", "content": "What's the weather?"},
+		},
+	})
+
+	out, err := convertResponsesRequestToAnthropic(reqBody)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal(out, &result); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+	messages := result["messages"].([]any)
+	if len(messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d: %+v", len(messages), messages)
+	}
+	thinkingMsg := messages[0].(map[string]any)
+	if thinkingMsg["role"] != "assistant" {
+		t.Fatalf("thinking message role = %v, want assistant", thinkingMsg["role"])
+	}
+	content := thinkingMsg["content"].([]any)
+	block := content[0].(map[string]any)
+	if block["type"] != "thinking" {
+		t.Fatalf("block type = %v, want thinking", block["type"])
+	}
+	if block["thinking"] != "Let me reason about this." {
+		t.Fatalf("thinking text = %v, want exact match", block["thinking"])
+	}
+	if block["signature"] != "sig-123" {
+		t.Fatalf("signature = %v, want sig-123", block["signature"])
+	}
+}
+
+func TestConvertResponsesRequestToAnthropicReconstructsRedactedThinkingBlock(t *testing.T) {
+	encryptedContent := encodeAnthropicThinkingPayload(anthropicThinkingPayload{
+		Type: "redacted_thinking", Data: "opaque-redacted-bytes",
+	})
+	reqBody, _ := json.Marshal(map[string]any{
+		"model": "claude-3-opus",
+		"input": []any{
+			map[string]any{"type": "reasoning", "summary": []any{}, "encrypted_content": encryptedContent},
+		},
+	})
+	out, err := convertResponsesRequestToAnthropic(reqBody)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var result map[string]any
+	json.Unmarshal(out, &result)
+	messages := result["messages"].([]any)
+	block := messages[0].(map[string]any)["content"].([]any)[0].(map[string]any)
+	if block["type"] != "redacted_thinking" || block["data"] != "opaque-redacted-bytes" {
+		t.Fatalf("unexpected reconstructed block: %+v", block)
+	}
+}
+
+// A reasoning item whose encrypted_content isn't gatelm's own tagged format
+// — a real OpenAI reasoning model's opaque blob, or simply absent because
+// the client protocol (e.g. Chat Completions) has no slot for it — must be
+// skipped rather than replayed as an unsigned/invalid thinking block that
+// Anthropic would likely reject.
+func TestConvertResponsesRequestToAnthropicSkipsUnrecognizedReasoning(t *testing.T) {
+	reqBody, _ := json.Marshal(map[string]any{
+		"model": "claude-3-opus",
+		"input": []any{
+			map[string]any{
+				"type":              "reasoning",
+				"summary":           []any{map[string]any{"type": "summary_text", "text": "some summary"}},
+				"encrypted_content": "some-real-openai-opaque-blob-not-ours",
+			},
+			map[string]any{"type": "message", "role": "user", "content": "hi"},
+		},
+	})
+	out, err := convertResponsesRequestToAnthropic(reqBody)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var result map[string]any
+	json.Unmarshal(out, &result)
+	messages := result["messages"].([]any)
+	if len(messages) != 1 {
+		t.Fatalf("expected the unrecognized reasoning item to be skipped, got %d messages: %+v", len(messages), messages)
+	}
+	if messages[0].(map[string]any)["role"] != "user" {
+		t.Fatalf("expected surviving message to be the user message, got %+v", messages[0])
+	}
+}

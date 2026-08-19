@@ -76,7 +76,6 @@ func (c *anthropicCodec) ResponseFromCanonical(body []byte, statusCode int) ([]b
 // ── Streaming ──
 
 // NewStreamDecoder creates a decoder for Anthropic SSE → canonical events.
-// TODO: implement when Anthropic backends are needed.
 func (c *anthropicCodec) NewStreamDecoder() StreamDecoder {
 	return &anthropicStreamDecoder{debug: c.debug}
 }
@@ -131,16 +130,18 @@ type anthropicStreamDecoder struct {
 	usage logging.UsageInfo
 
 	// state
-	model           string
-	id              string
-	thinkingOpen    bool
-	textOpen        bool
-	textIndex       int
-	thinkingIndex   int
-	nextBlockIndex  int
-	activeToolCalls map[int]*anthropicToolCall
-	sawToolUse      bool
-	stopReason      string
+	model             string
+	id                string
+	thinkingOpen      bool
+	textOpen          bool
+	textIndex         int
+	thinkingIndex     int
+	thinkingText      strings.Builder
+	thinkingSignature strings.Builder
+	nextBlockIndex    int
+	activeToolCalls   map[int]*anthropicToolCall
+	sawToolUse        bool
+	stopReason        string
 }
 
 type anthropicToolCall struct {
@@ -160,10 +161,10 @@ func (d *anthropicStreamDecoder) Decode(line string) ([]CanonicalEvent, error) {
 	}
 
 	var event struct {
-		Type    string          `json:"type"`
-		Index   int             `json:"index"`
-		Message json.RawMessage `json:"message"`
-		Delta   json.RawMessage `json:"delta"`
+		Type         string          `json:"type"`
+		Index        int             `json:"index"`
+		Message      json.RawMessage `json:"message"`
+		Delta        json.RawMessage `json:"delta"`
 		ContentBlock json.RawMessage `json:"content_block"`
 	}
 
@@ -199,10 +200,11 @@ func (d *anthropicStreamDecoder) Decode(line string) ([]CanonicalEvent, error) {
 
 	case "content_block_start":
 		var block struct {
-			Type  string `json:"type"`
-			Text  string `json:"text"`
-			ID    string `json:"id"`
-			Name  string `json:"name"`
+			Type string `json:"type"`
+			Text string `json:"text"`
+			ID   string `json:"id"`
+			Name string `json:"name"`
+			Data string `json:"data"`
 		}
 		if err := json.Unmarshal(event.ContentBlock, &block); err != nil {
 			return nil, nil
@@ -215,7 +217,28 @@ func (d *anthropicStreamDecoder) Decode(line string) ([]CanonicalEvent, error) {
 		case "thinking":
 			d.thinkingOpen = true
 			d.thinkingIndex = idx
+			d.thinkingText.Reset()
+			d.thinkingSignature.Reset()
 			events = append(events, d.makeEvent("response.reasoning_summary_part.added", map[string]any{}))
+
+		case "redacted_thinking":
+			// Redacted thinking blocks are atomic: Anthropic sends the full
+			// opaque data immediately, with no delta events to follow, so
+			// there's nothing to accumulate — just carry it straight through.
+			if block.Data != "" {
+				payload := encodeAnthropicThinkingPayload(anthropicThinkingPayload{
+					Type: "redacted_thinking",
+					Data: block.Data,
+				})
+				events = append(events, d.makeEvent("response.output_item.done", map[string]any{
+					"output_index": idx,
+					"item": map[string]any{
+						"type":              "reasoning",
+						"summary":           []any{},
+						"encrypted_content": payload,
+					},
+				}))
+			}
 
 		case "text":
 			d.textOpen = true
@@ -251,9 +274,10 @@ func (d *anthropicStreamDecoder) Decode(line string) ([]CanonicalEvent, error) {
 
 	case "content_block_delta":
 		var delta struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-			Thinking string `json:"thinking"`
+			Type        string `json:"type"`
+			Text        string `json:"text"`
+			Thinking    string `json:"thinking"`
+			Signature   string `json:"signature"`
 			PartialJSON string `json:"partial_json"`
 		}
 		if err := json.Unmarshal(event.Delta, &delta); err != nil {
@@ -265,9 +289,15 @@ func (d *anthropicStreamDecoder) Decode(line string) ([]CanonicalEvent, error) {
 		switch delta.Type {
 		case "thinking_delta":
 			if delta.Thinking != "" && d.thinkingOpen {
+				d.thinkingText.WriteString(delta.Thinking)
 				events = append(events, d.makeEvent("response.reasoning_summary_text.delta", map[string]any{
 					"delta": delta.Thinking,
 				}))
+			}
+
+		case "signature_delta":
+			if delta.Signature != "" && d.thinkingOpen {
+				d.thinkingSignature.WriteString(delta.Signature)
 			}
 
 		case "text_delta":
@@ -290,9 +320,7 @@ func (d *anthropicStreamDecoder) Decode(line string) ([]CanonicalEvent, error) {
 	case "content_block_stop":
 		idx := event.Index
 		if d.thinkingOpen && idx == d.thinkingIndex {
-			d.thinkingOpen = false
-			events = append(events, d.makeEvent("response.reasoning_summary_text.done", map[string]any{}))
-			events = append(events, d.makeEvent("response.reasoning_summary_part.done", map[string]any{}))
+			d.closeThinkingBlock(&events)
 		} else if d.textOpen && idx == d.textIndex {
 			d.textOpen = false
 			events = append(events, d.makeEvent("response.output_text.done", map[string]any{
@@ -333,10 +361,7 @@ func (d *anthropicStreamDecoder) Flush() ([]CanonicalEvent, logging.UsageInfo) {
 	var events []CanonicalEvent
 
 	// Close any open blocks
-	if d.thinkingOpen {
-		events = append(events, d.makeEvent("response.reasoning_summary_text.done", map[string]any{}))
-		events = append(events, d.makeEvent("response.reasoning_summary_part.done", map[string]any{}))
-	}
+	d.closeThinkingBlock(&events)
 	if d.textOpen {
 		events = append(events, d.makeEvent("response.output_text.done", map[string]any{
 			"output_index": d.textIndex,
@@ -371,6 +396,41 @@ func (d *anthropicStreamDecoder) closeTextBlock(events *[]CanonicalEvent) {
 			"output_index": d.textIndex,
 		}))
 	}
+}
+
+// closeThinkingBlock closes an open "thinking" block, if any. When a
+// signature was accumulated, it also emits a response.output_item.done event
+// carrying the full reasoning item (summary text + encrypted_content), so a
+// signed thinking block survives a later request reconstruction even if the
+// stream ends abruptly without a proper content_block_stop.
+func (d *anthropicStreamDecoder) closeThinkingBlock(events *[]CanonicalEvent) {
+	if !d.thinkingOpen {
+		return
+	}
+	d.thinkingOpen = false
+	*events = append(*events, d.makeEvent("response.reasoning_summary_text.done", map[string]any{}))
+	*events = append(*events, d.makeEvent("response.reasoning_summary_part.done", map[string]any{}))
+
+	thinking := d.thinkingText.String()
+	signature := d.thinkingSignature.String()
+	if signature == "" {
+		return
+	}
+	payload := encodeAnthropicThinkingPayload(anthropicThinkingPayload{
+		Type:      "thinking",
+		Thinking:  thinking,
+		Signature: signature,
+	})
+	*events = append(*events, d.makeEvent("response.output_item.done", map[string]any{
+		"output_index": d.thinkingIndex,
+		"item": map[string]any{
+			"type": "reasoning",
+			"summary": []any{
+				map[string]any{"type": "summary_text", "text": thinking},
+			},
+			"encrypted_content": payload,
+		},
+	}))
 }
 
 func (d *anthropicStreamDecoder) makeEvent(eventType string, data any) CanonicalEvent {

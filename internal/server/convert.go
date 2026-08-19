@@ -1,10 +1,69 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
 )
+
+// ---------------------------------------------------------------------------
+// Anthropic thinking-block round-trip (signature preservation)
+//
+// Anthropic's extended thinking feature requires a "thinking" block's exact
+// text and its "signature" (or a "redacted_thinking" block's opaque "data")
+// to be replayed verbatim in a later turn — otherwise the backend can
+// reject the request. The canonical (Responses-shaped) representation has
+// no native field for this, but real OpenAI-compatible clients already
+// know to preserve a reasoning item's "encrypted_content" field opaquely
+// across turns (it serves the same purpose for OpenAI's own reasoning
+// models), so we tag and stash the original Anthropic block there instead
+// of inventing a new top-level field a strict client might drop on
+// re-serialization.
+// ---------------------------------------------------------------------------
+
+const anthropicThinkingPayloadTag = "gatelm-anthropic-thinking-v1:"
+
+type anthropicThinkingPayload struct {
+	Type      string `json:"type"` // "thinking" or "redacted_thinking"
+	Thinking  string `json:"thinking,omitempty"`
+	Signature string `json:"signature,omitempty"`
+	Data      string `json:"data,omitempty"` // redacted_thinking's opaque data
+}
+
+// encodeAnthropicThinkingPayload packs an Anthropic thinking/redacted_thinking
+// block into an opaque, tagged string suitable for a reasoning item's
+// "encrypted_content" field.
+func encodeAnthropicThinkingPayload(p anthropicThinkingPayload) string {
+	b, err := json.Marshal(p)
+	if err != nil {
+		return ""
+	}
+	return anthropicThinkingPayloadTag + base64.StdEncoding.EncodeToString(b)
+}
+
+// decodeAnthropicThinkingPayload reverses encodeAnthropicThinkingPayload. It
+// returns ok=false for any string gatelm didn't produce itself — including a
+// real OpenAI reasoning model's own encrypted_content — so callers can fall
+// back to dropping the block rather than reconstructing an invalid one.
+func decodeAnthropicThinkingPayload(encryptedContent string) (anthropicThinkingPayload, bool) {
+	raw, ok := strings.CutPrefix(encryptedContent, anthropicThinkingPayloadTag)
+	if !ok {
+		return anthropicThinkingPayload{}, false
+	}
+	decoded, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return anthropicThinkingPayload{}, false
+	}
+	var p anthropicThinkingPayload
+	if err := json.Unmarshal(decoded, &p); err != nil {
+		return anthropicThinkingPayload{}, false
+	}
+	if p.Type != "thinking" && p.Type != "redacted_thinking" {
+		return anthropicThinkingPayload{}, false
+	}
+	return p, true
+}
 
 func needsProtocolConversion(clientProtocol, backendProtocol string) bool {
 	return clientProtocol != "" && clientProtocol != backendProtocol
@@ -993,6 +1052,41 @@ func convertResponsesRequestToAnthropic(body []byte) ([]byte, error) {
 			itemType, _ := im["type"].(string)
 
 			switch itemType {
+			case "reasoning":
+				// reasoning → assistant message with a thinking/redacted_thinking
+				// content block, but only when encrypted_content decodes back to
+				// gatelm's own tagged payload (i.e. it originated from an
+				// Anthropic backend's response). Anthropic requires the
+				// signature to match the original block exactly, so a
+				// reasoning item we can't verify (e.g. a real OpenAI
+				// reasoning model's own encrypted_content, or a client that
+				// dropped the field) is skipped rather than replayed as an
+				// unsigned/invalid thinking block that the backend would
+				// likely reject outright.
+				encryptedContent, _ := im["encrypted_content"].(string)
+				if payload, ok := decodeAnthropicThinkingPayload(encryptedContent); ok {
+					var block map[string]any
+					switch payload.Type {
+					case "thinking":
+						block = map[string]any{
+							"type":      "thinking",
+							"thinking":  payload.Thinking,
+							"signature": payload.Signature,
+						}
+					case "redacted_thinking":
+						block = map[string]any{
+							"type": "redacted_thinking",
+							"data": payload.Data,
+						}
+					}
+					if block != nil {
+						messages = append(messages, map[string]any{
+							"role":    "assistant",
+							"content": []any{block},
+						})
+					}
+				}
+
 			case "function_call":
 				// function_call → assistant message with tool_use content block
 				args, _ := im["arguments"].(string)
@@ -1120,14 +1214,40 @@ func convertAnthropicResponseToResponses(body []byte, statusCode int) ([]byte, e
 
 		switch blockType {
 		case "thinking":
-			// thinking → reasoning output
+			// thinking → reasoning output. The signature is required to
+			// replay this exact block back to Anthropic in a later turn, so
+			// it's stashed in encrypted_content rather than dropped.
 			thinking, _ := b["thinking"].(string)
+			signature, _ := b["signature"].(string)
 			if thinking != "" {
-				output = append(output, map[string]any{
+				item := map[string]any{
 					"type": "reasoning",
 					"summary": []any{
 						map[string]any{"type": "summary_text", "text": thinking},
 					},
+				}
+				if signature != "" {
+					item["encrypted_content"] = encodeAnthropicThinkingPayload(anthropicThinkingPayload{
+						Type:      "thinking",
+						Thinking:  thinking,
+						Signature: signature,
+					})
+				}
+				output = append(output, item)
+			}
+
+		case "redacted_thinking":
+			// redacted_thinking has no visible text, only opaque data that
+			// must be replayed verbatim — carry it the same way.
+			data, _ := b["data"].(string)
+			if data != "" {
+				output = append(output, map[string]any{
+					"type":    "reasoning",
+					"summary": []any{},
+					"encrypted_content": encodeAnthropicThinkingPayload(anthropicThinkingPayload{
+						Type: "redacted_thinking",
+						Data: data,
+					}),
 				})
 			}
 
