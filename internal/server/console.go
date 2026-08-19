@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -148,6 +149,71 @@ func (s *Server) handleConsoleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// redactedSecretPlaceholder stands in for a real backend api_key or header
+// value in console API responses. On PUT, any field still equal to this
+// placeholder is treated as "unchanged" and restored from the current config.
+const redactedSecretPlaceholder = "••••••••"
+
+// redactBackendSecrets returns a copy of backends with api_key and header
+// values masked, so real secrets are never sent to the console UI on GET.
+func redactBackendSecrets(backends []config.Backend) []config.Backend {
+	out := make([]config.Backend, len(backends))
+	for i, b := range backends {
+		if b.APIKey != "" {
+			b.APIKey = redactedSecretPlaceholder
+		}
+		if len(b.Headers) > 0 {
+			headers := make(map[string]string, len(b.Headers))
+			for k, v := range b.Headers {
+				if v != "" {
+					v = redactedSecretPlaceholder
+				}
+				headers[k] = v
+			}
+			b.Headers = headers
+		}
+		out[i] = b
+	}
+	return out
+}
+
+// restoreBackendSecrets replaces any redactedSecretPlaceholder api_key/header
+// values in newBackends with the real secret from oldBackends, matched by
+// backend name (falling back to position for a renamed backend). This lets
+// the console UI round-trip a GET response back through PUT without ever
+// needing to see or resend the real secret.
+func restoreBackendSecrets(newBackends, oldBackends []config.Backend) []config.Backend {
+	byName := make(map[string]config.Backend, len(oldBackends))
+	for _, b := range oldBackends {
+		byName[b.Name] = b
+	}
+	out := make([]config.Backend, len(newBackends))
+	for i, nb := range newBackends {
+		old, ok := byName[nb.Name]
+		if !ok && i < len(oldBackends) {
+			old, ok = oldBackends[i], true
+		}
+		if ok {
+			if nb.APIKey == redactedSecretPlaceholder {
+				nb.APIKey = old.APIKey
+			}
+			if len(nb.Headers) > 0 {
+				for k, v := range nb.Headers {
+					if v == redactedSecretPlaceholder {
+						if oldVal, exists := old.Headers[k]; exists {
+							nb.Headers[k] = oldVal
+						} else {
+							delete(nb.Headers, k)
+						}
+					}
+				}
+			}
+		}
+		out[i] = nb
+	}
+	return out
+}
+
 func (s *Server) handleConsoleConfigGet(w http.ResponseWriter, r *http.Request) {
 	snap := s.snapshot()
 	// Scrub the password from the response; the UI is not allowed to read it back.
@@ -158,13 +224,15 @@ func (s *Server) handleConsoleConfigGet(w http.ResponseWriter, r *http.Request) 
 		Listen:                snap.cfg.Listen,
 		Debug:                 snap.cfg.Debug,
 		MaxConcurrentRequests: snap.cfg.MaxConcurrentRequests,
-		Backends:              snap.cfg.Backends,
+		Backends:              redactBackendSecrets(snap.cfg.Backends),
 		TokenLog:              snap.cfg.TokenLog,
-		APIKeys:               snap.cfg.APIKeys,
-		ModelDefaults:         snap.cfg.ModelDefaults,
-		CircuitBreaker:        snap.cfg.CircuitBreaker,
-		Console:               redactedConsole,
-		TrustedProxies:        snap.cfg.TrustedProxies,
+		// Client api_keys are keyed by the secret itself and have no console UI
+		// to edit them — never send the real keys to the browser.
+		APIKeys:        map[string]string{},
+		ModelDefaults:  snap.cfg.ModelDefaults,
+		CircuitBreaker: snap.cfg.CircuitBreaker,
+		Console:        redactedConsole,
+		TrustedProxies: snap.cfg.TrustedProxies,
 	})
 }
 
@@ -180,21 +248,30 @@ func (s *Server) handleConsoleConfigPut(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	// Empty password on PUT means "keep existing" — this pairs with the GET
-	// redaction so the plaintext password never needs to round-trip through the UI.
+	// redaction so the plaintext password never needs to round-trip through the
+	// UI. Prefer the pre-expansion form (e.g. "${CONSOLE_PASSWORD}") so saving
+	// unrelated config changes doesn't bake an expanded env-var password onto
+	// disk as plaintext.
 	if strings.TrimSpace(payload.Console.Password) == "" {
-		payload.Console.Password = snap.cfg.Console.Password
+		if snap.cfg.Console.RawPassword != "" {
+			payload.Console.Password = snap.cfg.Console.RawPassword
+		} else {
+			payload.Console.Password = snap.cfg.Console.Password
+		}
 	}
 	cfg := config.Config{
 		Listen:                payload.Listen,
 		Debug:                 payload.Debug,
 		MaxConcurrentRequests: payload.MaxConcurrentRequests,
-		Backends:              payload.Backends,
+		Backends:              restoreBackendSecrets(payload.Backends, snap.cfg.Backends),
 		TokenLog:              payload.TokenLog,
-		APIKeys:               payload.APIKeys,
-		ModelDefaults:         payload.ModelDefaults,
-		CircuitBreaker:        payload.CircuitBreaker,
-		Console:               payload.Console,
-		TrustedProxies:        payload.TrustedProxies,
+		// Not editable via this endpoint (see handleConsoleConfigGet) — always
+		// keep the existing client api_keys regardless of what was submitted.
+		APIKeys:        snap.cfg.APIKeys,
+		ModelDefaults:  payload.ModelDefaults,
+		CircuitBreaker: payload.CircuitBreaker,
+		Console:        payload.Console,
+		TrustedProxies: payload.TrustedProxies,
 	}
 	if err := s.SaveAndReloadConfig(snap.configPath, cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -498,26 +575,32 @@ func preserveSpacingFromPreviousValue(previousValue, keyNode *yaml.Node) {
 }
 
 func (s *Server) ReloadConfig(newCfg config.Config) error {
+	newHealth := NewHealthManager(HealthManagerConfig{
+		FailThreshold:       newCfg.CircuitBreaker.FailThreshold,
+		RecoveryTimeout:     parseRecoveryTimeoutOrDefault(newCfg.CircuitBreaker.RecoveryTimeout, 30*time.Second),
+		HalfOpenMaxRequests: newCfg.CircuitBreaker.HalfOpenMaxRequests,
+	}, s.Client, s.Debug)
+
 	s.mu.Lock()
-	defer s.mu.Unlock()
+
+	// Carry over circuit-breaker state (tripped/probing/consecutive fails) so
+	// an unrelated config edit doesn't silently heal a backend that's still
+	// actively failing — a fresh HealthManager otherwise starts every backend
+	// as healthy.
+	newHealth.adoptState(s.Health)
+	newHealth.StartActiveChecks(newCfg.Backends)
 
 	// Invalidate all sessions when password changes
 	if newCfg.Console.Password != s.Cfg.Console.Password {
 		s.revokeAllSessions()
 	}
 
-	newHealth := NewHealthManager(HealthManagerConfig{
-		FailThreshold:       newCfg.CircuitBreaker.FailThreshold,
-		RecoveryTimeout:     parseRecoveryTimeoutOrDefault(newCfg.CircuitBreaker.RecoveryTimeout, 30*time.Second),
-		HalfOpenMaxRequests: newCfg.CircuitBreaker.HalfOpenMaxRequests,
-	}, s.Client, s.Debug)
-	newHealth.StartActiveChecks(newCfg.Backends)
-
 	newTokenLog := s.TokenLog
 	oldTokenLog := s.TokenLog
 	if tokenLogNeedsRebuild(s.Cfg.TokenLog, newCfg.TokenLog) {
 		created, err := logging.NewTokenLogger(newCfg.TokenLog)
 		if err != nil {
+			s.mu.Unlock()
 			newHealth.Stop()
 			return fmt.Errorf("rebuild token logger failed: %w", err)
 		}
@@ -530,7 +613,12 @@ func (s *Server) ReloadConfig(newCfg config.Config) error {
 	s.TokenLog = newTokenLog
 	s.Health = newHealth
 	s.Selector = NewBackendSelector(newHealth)
+	s.mu.Unlock()
 
+	// Stop the replaced health manager and token logger outside the lock:
+	// HealthManager.Stop() waits for any in-flight active health check (up to
+	// its HTTP timeout), and holding s.mu here would stall every concurrent
+	// request's snapshot() call for that whole time.
 	if oldHealth != nil {
 		oldHealth.Stop()
 	}
@@ -762,7 +850,8 @@ func (s *Server) handleConsoleLogin(basePath string) http.HandlerFunc {
 			http.Error(w, "invalid json body", http.StatusBadRequest)
 			return
 		}
-		if strings.TrimSpace(req.Password) != snap.cfg.Console.Password {
+		submitted := strings.TrimSpace(req.Password)
+		if subtle.ConstantTimeCompare([]byte(submitted), []byte(snap.cfg.Console.Password)) != 1 {
 			http.Error(w, "invalid password", http.StatusUnauthorized)
 			return
 		}

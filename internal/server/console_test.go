@@ -428,6 +428,35 @@ func TestSaveAndReloadConfigRejectsInvalidConfigWithoutOverwrite(t *testing.T) {
 	}
 }
 
+// ReloadConfig rebuilds the HealthManager from scratch (new FailThreshold /
+// RecoveryTimeout may apply), so it must carry over existing circuit-breaker
+// state — otherwise an unrelated config save would silently un-trip a
+// backend that's still actively failing.
+func TestReloadConfigPreservesCircuitBreakerState(t *testing.T) {
+	cfg := config.Config{
+		CircuitBreaker: config.CircuitBreakerConfig{FailThreshold: 1, RecoveryTimeout: "1h"},
+		Backends: []config.Backend{{
+			Name: "b1", URL: "http://example.com", Protocol: "openai", Models: []config.Model{{Name: "gpt-4o"}},
+		}},
+	}
+	health := NewHealthManager(HealthManagerConfig{FailThreshold: 1, RecoveryTimeout: time.Hour}, http.DefaultClient, logging.NewDebugLog(false, ""))
+	srv := New(cfg, nil, logging.NewDebugLog(false, ""), http.DefaultClient, health, NewNoopObserver())
+
+	health.ReportFailure("b1")
+	if state := srv.Health.CircuitState("b1"); state != "tripped" {
+		t.Fatalf("expected b1 tripped before reload, got %q", state)
+	}
+
+	newCfg := cfg
+	newCfg.Listen = ":9999"
+	if err := srv.ReloadConfig(newCfg); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if state := srv.Health.CircuitState("b1"); state != "tripped" {
+		t.Fatalf("expected b1 still tripped after reload of an unrelated field, got %q", state)
+	}
+}
+
 // extractIP must take the rightmost XFF entry when the direct remote address
 // is a trusted proxy, so a client-supplied leftmost hop cannot forge a fresh
 // IP and bypass the per-IP login rate limit.
@@ -541,6 +570,170 @@ func TestConsoleConfigPutPreservesPasswordWhenBlank(t *testing.T) {
 	}
 	if !bytes.Contains(persisted, []byte("password: original-secret")) {
 		t.Fatalf("expected original password persisted, got:\n%s", string(persisted))
+	}
+}
+
+// GET must never expose real backend api_key/header secrets or client
+// api_keys to the console UI.
+func TestConsoleConfigGetRedactsBackendSecrets(t *testing.T) {
+	cfg := config.Config{
+		Console: config.ConsoleConfig{Enabled: true, Password: "super-secret"},
+		Backends: []config.Backend{{
+			Name: "b1", URL: "http://example.com", Protocol: "openai",
+			APIKey:  "real-api-key-value",
+			Headers: map[string]string{"X-Custom": "real-header-value"},
+			Models:  []config.Model{{Name: "gpt-4o"}},
+		}},
+		APIKeys: map[string]string{"client-secret-key": "team-a"},
+	}
+	srv := New(cfg, nil, logging.NewDebugLog(false, ""), http.DefaultClient, NewHealthManager(HealthManagerConfig{}, http.DefaultClient, logging.NewDebugLog(false, "")), NewNoopObserver())
+	mux := http.NewServeMux()
+	srv.RegisterConsoleRoutes(mux)
+	cookie := loginConsole(t, mux, "/console", "super-secret")
+
+	req := httptest.NewRequest(http.MethodGet, "/console/api/config", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("get config code = %d", w.Code)
+	}
+	if bytes.Contains(w.Body.Bytes(), []byte("real-api-key-value")) ||
+		bytes.Contains(w.Body.Bytes(), []byte("real-header-value")) ||
+		bytes.Contains(w.Body.Bytes(), []byte("client-secret-key")) {
+		t.Fatalf("secret leaked in GET response: %s", w.Body.String())
+	}
+	var payload consoleConfigPayload
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if payload.Backends[0].APIKey != redactedSecretPlaceholder {
+		t.Fatalf("expected redacted api_key, got %q", payload.Backends[0].APIKey)
+	}
+	if payload.Backends[0].Headers["X-Custom"] != redactedSecretPlaceholder {
+		t.Fatalf("expected redacted header value, got %q", payload.Backends[0].Headers["X-Custom"])
+	}
+	if len(payload.APIKeys) != 0 {
+		t.Fatalf("expected empty api_keys in GET, got %v", payload.APIKeys)
+	}
+}
+
+// Saving unrelated config changes must not overwrite real backend secrets
+// with the redacted placeholder the UI round-trips back on PUT.
+func TestConsoleConfigPutRoundTripPreservesBackendSecrets(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	original := "listen: ':8080'\nconsole:\n  enabled: true\n  password: original-secret\n" +
+		"backends:\n  - name: b1\n    url: http://example.com\n    protocol: openai\n" +
+		"    api_key: real-api-key-value\n    headers:\n      X-Custom: real-header-value\n" +
+		"    models:\n      - name: gpt-4o\n"
+	if err := os.WriteFile(configPath, []byte(original), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	srv := New(cfg, nil, logging.NewDebugLog(false, ""), http.DefaultClient, NewHealthManager(HealthManagerConfig{}, http.DefaultClient, logging.NewDebugLog(false, "")), NewNoopObserver())
+	srv.SetConfigPath(configPath)
+	mux := http.NewServeMux()
+	srv.RegisterConsoleRoutes(mux)
+	cookie := loginConsole(t, mux, "/console", "original-secret")
+
+	getReq := httptest.NewRequest(http.MethodGet, "/console/api/config", nil)
+	getReq.AddCookie(cookie)
+	getW := httptest.NewRecorder()
+	mux.ServeHTTP(getW, getReq)
+	var payload consoleConfigPayload
+	if err := json.Unmarshal(getW.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode GET: %v", err)
+	}
+
+	// Simulate the UI editing an unrelated field and saving the fetched
+	// (redacted) payload back unchanged otherwise.
+	payload.Listen = ":9090"
+	payload.Console.Password = ""
+	body, _ := json.Marshal(payload)
+	putReq := httptest.NewRequest(http.MethodPut, "/console/api/config", bytes.NewReader(body))
+	putReq.AddCookie(cookie)
+	putW := httptest.NewRecorder()
+	mux.ServeHTTP(putW, putReq)
+	if putW.Code != http.StatusOK {
+		t.Fatalf("PUT code = %d body=%s", putW.Code, putW.Body.String())
+	}
+
+	persisted, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read persisted config: %v", err)
+	}
+	if !bytes.Contains(persisted, []byte("real-api-key-value")) {
+		t.Fatalf("expected real api_key preserved on disk, got:\n%s", string(persisted))
+	}
+	if !bytes.Contains(persisted, []byte("real-header-value")) {
+		t.Fatalf("expected real header value preserved on disk, got:\n%s", string(persisted))
+	}
+	if bytes.Contains(persisted, []byte(redactedSecretPlaceholder)) {
+		t.Fatalf("redacted placeholder must never be persisted, got:\n%s", string(persisted))
+	}
+}
+
+// A password configured via an env var reference must stay a reference on
+// disk after saving unrelated config changes, instead of being baked into
+// the file as the expanded plaintext.
+func TestConsoleConfigPutPreservesEnvVarPassword(t *testing.T) {
+	t.Setenv("GATELM_TEST_CONSOLE_PASSWORD", "expanded-secret")
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	original := "listen: ':8080'\nconsole:\n  enabled: true\n  password: \"${GATELM_TEST_CONSOLE_PASSWORD}\"\n" +
+		"backends:\n  - name: b1\n    url: http://example.com\n    protocol: openai\n    models:\n      - name: gpt-4o\n"
+	if err := os.WriteFile(configPath, []byte(original), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Console.Password != "expanded-secret" {
+		t.Fatalf("expected expanded password, got %q", cfg.Console.Password)
+	}
+	srv := New(cfg, nil, logging.NewDebugLog(false, ""), http.DefaultClient, NewHealthManager(HealthManagerConfig{}, http.DefaultClient, logging.NewDebugLog(false, "")), NewNoopObserver())
+	srv.SetConfigPath(configPath)
+	mux := http.NewServeMux()
+	srv.RegisterConsoleRoutes(mux)
+	cookie := loginConsole(t, mux, "/console", "expanded-secret")
+
+	payload := consoleConfigPayload{
+		Listen:   ":9090",
+		Console:  config.ConsoleConfig{Enabled: true, Password: ""},
+		Backends: cfg.Backends,
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPut, "/console/api/config", bytes.NewReader(body))
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("PUT code = %d body=%s", w.Code, w.Body.String())
+	}
+
+	persisted, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read persisted config: %v", err)
+	}
+	if !bytes.Contains(persisted, []byte("GATELM_TEST_CONSOLE_PASSWORD")) {
+		t.Fatalf("expected env-var reference preserved on disk, got:\n%s", string(persisted))
+	}
+	if bytes.Contains(persisted, []byte("expanded-secret")) {
+		t.Fatalf("expanded plaintext password must never be persisted, got:\n%s", string(persisted))
+	}
+
+	// Login with the env-expanded password must still succeed after reload.
+	loginBody := bytes.NewReader([]byte(`{"password":"expanded-secret"}`))
+	loginReq := httptest.NewRequest(http.MethodPost, "/console/api/login", loginBody)
+	loginW := httptest.NewRecorder()
+	mux.ServeHTTP(loginW, loginReq)
+	if loginW.Code != http.StatusOK {
+		t.Fatalf("login after reload = %d body=%s", loginW.Code, loginW.Body.String())
 	}
 }
 
