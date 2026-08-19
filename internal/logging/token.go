@@ -46,8 +46,10 @@ type TokenLogger struct {
 	path    string
 
 	// JSONL mode
-	mu   sync.Mutex
-	file *os.File
+	mu          sync.Mutex
+	file        *os.File
+	jsonlStopCh chan struct{}
+	jsonlDone   chan struct{}
 
 	// SQLite mode
 	db             *sql.DB
@@ -69,7 +71,7 @@ func NewTokenLogger(cfg config.TokenLogConfig) (*TokenLogger, error) {
 	if isSQLiteFile(p) {
 		return newSQLiteLogger(p, cfg.RetentionDays)
 	}
-	return newJSONLLogger(p)
+	return newJSONLLogger(p, cfg.RetentionDays)
 }
 
 func isSQLiteFile(path string) bool {
@@ -77,12 +79,133 @@ func isSQLiteFile(path string) bool {
 	return ext == ".db" || ext == ".sqlite" || ext == ".sqlite3"
 }
 
-func newJSONLLogger(path string) (*TokenLogger, error) {
+func newJSONLLogger(path string, retentionDays int) (*TokenLogger, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return nil, err
 	}
-	return &TokenLogger{enabled: true, mode: "jsonl", path: path, file: f}, nil
+	l := &TokenLogger{enabled: true, mode: "jsonl", path: path, file: f, retentionDays: retentionDays}
+	if retentionDays > 0 {
+		l.jsonlStopCh = make(chan struct{})
+		l.jsonlDone = make(chan struct{})
+		go l.jsonlCleanupLoop()
+	}
+	return l, nil
+}
+
+// jsonlCleanupLoop periodically prunes JSONL entries older than
+// retentionDays, mirroring the SQLite mode's cleanup ticker (see
+// batchWriter/cleanupOldEntries) so token_log.retention_days is honored
+// regardless of storage mode instead of letting the file grow unbounded.
+func (l *TokenLogger) jsonlCleanupLoop() {
+	defer close(l.jsonlDone)
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("token log: jsonl cleanup panic: %v", r)
+		}
+	}()
+
+	l.cleanupOldJSONLEntries()
+
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-l.jsonlStopCh:
+			return
+		case <-ticker.C:
+			l.cleanupOldJSONLEntries()
+		}
+	}
+}
+
+// cleanupOldJSONLEntries rewrites the JSONL file, dropping entries older
+// than retentionDays. It holds l.mu for the full read-filter-rewrite-swap so
+// a Log() call racing with cleanup can never be lost.
+func (l *TokenLogger) cleanupOldJSONLEntries() {
+	if l.retentionDays <= 0 {
+		return
+	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -l.retentionDays).Format(time.RFC3339)
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	data, err := os.ReadFile(l.path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("token log: jsonl cleanup read failed: %v", err)
+		}
+		return
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	kept := make([]string, 0, len(lines))
+	removed := 0
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var entry UsageLog
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			// Keep unparsable lines rather than silently discard data we
+			// can't evaluate against the retention cutoff.
+			kept = append(kept, line)
+			continue
+		}
+		if entry.Time != "" && entry.Time < cutoff {
+			removed++
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if removed == 0 {
+		return
+	}
+
+	dir := filepath.Dir(l.path)
+	tmp, err := os.CreateTemp(dir, "tokenlog-cleanup-*.tmp")
+	if err != nil {
+		log.Printf("token log: jsonl cleanup temp file failed: %v", err)
+		return
+	}
+	tmpPath := tmp.Name()
+	content := ""
+	if len(kept) > 0 {
+		content = strings.Join(kept, "\n") + "\n"
+	}
+	if _, err := tmp.WriteString(content); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		log.Printf("token log: jsonl cleanup write failed: %v", err)
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		log.Printf("token log: jsonl cleanup close failed: %v", err)
+		return
+	}
+
+	// Open a fresh append handle on the rewritten file before the rename so
+	// l.file always points at valid, appendable content — renaming doesn't
+	// affect an already-open descriptor's target inode.
+	newFile, err := os.OpenFile(tmpPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		os.Remove(tmpPath)
+		log.Printf("token log: jsonl cleanup reopen failed: %v", err)
+		return
+	}
+	if err := os.Rename(tmpPath, l.path); err != nil {
+		newFile.Close()
+		os.Remove(tmpPath)
+		log.Printf("token log: jsonl cleanup rename failed: %v", err)
+		return
+	}
+	old := l.file
+	l.file = newFile
+	old.Close()
+	log.Printf("token log: cleaned up %d entries older than %d days", removed, l.retentionDays)
 }
 
 func newSQLiteLogger(path string, retentionDays int) (*TokenLogger, error) {
@@ -403,15 +526,12 @@ func (l *TokenLogger) querySQLiteUsageLogs(filter UsageLogFilter) ([]UsageLog, U
 }
 
 func (l *TokenLogger) queryJSONLUsageLogs(filter UsageLogFilter) ([]UsageLog, UsageLogSummary, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	if l.file != nil {
-		if err := l.file.Sync(); err != nil {
-			log.Printf("token log: sync failed before query: %v", err)
-		}
-	}
-
+	// Deliberately does not take l.mu or fsync: Log() appends are visible to
+	// a fresh read without fsync (fsync only affects durability across a
+	// crash, not read visibility), and reading via path uses an independent
+	// file handle from l.file's append handle. Not serializing against Log()
+	// means opening the console's log viewer can no longer stall every
+	// concurrent request's completion logging behind a full-file read.
 	data, err := os.ReadFile(l.path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -509,6 +629,9 @@ func matchUsageLogFilter(entry UsageLog, filter UsageLogFilter) bool {
 }
 
 func (l *TokenLogger) Close() {
+	if l == nil {
+		return
+	}
 	if l.mode == "sqlite" {
 		close(l.logCh)
 		select {
@@ -525,6 +648,17 @@ func (l *TokenLogger) Close() {
 		}
 		return
 	}
+	if l.jsonlStopCh != nil {
+		close(l.jsonlStopCh)
+		select {
+		case <-l.jsonlDone:
+			// Normal shutdown
+		case <-time.After(5 * time.Second):
+			log.Printf("token log: jsonl cleanup goroutine shutdown timeout after 5s")
+		}
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.file != nil {
 		_ = l.file.Close()
 	}

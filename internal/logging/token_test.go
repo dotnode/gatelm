@@ -296,6 +296,83 @@ func TestTokenLoggerJSONLBackcompat(t *testing.T) {
 	}
 }
 
+// RetentionDays must be honored in JSONL mode too, not just SQLite — mirrors
+// TestCleanupOldEntries but for the JSONL storage path.
+func TestJSONLCleanupOldEntries(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "cleanup.log")
+	cfg := config.TokenLogConfig{Enabled: true, File: logPath, RetentionDays: 7}
+	logger, err := NewTokenLogger(cfg)
+	if err != nil {
+		t.Fatalf("NewTokenLogger failed: %v", err)
+	}
+	defer logger.Close()
+
+	oldTime := time.Now().UTC().AddDate(0, 0, -10).Format(time.RFC3339)
+	logger.Log(UsageLog{Time: oldTime, Backend: "old-backend", StatusCode: 200})
+	newTime := time.Now().UTC().Format(time.RFC3339)
+	logger.Log(UsageLog{Time: newTime, Backend: "new-backend", StatusCode: 200})
+
+	// Trigger cleanup directly rather than waiting for the hourly ticker.
+	logger.cleanupOldJSONLEntries()
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log file: %v", err)
+	}
+	content := string(data)
+	if strings.Contains(content, "old-backend") {
+		t.Fatalf("expected old entry to be cleaned up, got:\n%s", content)
+	}
+	if !strings.Contains(content, "new-backend") {
+		t.Fatalf("expected recent entry to survive cleanup, got:\n%s", content)
+	}
+
+	// The logger must still be able to append after cleanup rewrote the file.
+	logger.Log(UsageLog{Time: newTime, Backend: "post-cleanup-backend", StatusCode: 200})
+	data, err = os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log file after append: %v", err)
+	}
+	if !strings.Contains(string(data), "post-cleanup-backend") {
+		t.Fatalf("expected append after cleanup to succeed, got:\n%s", string(data))
+	}
+}
+
+// Querying JSONL logs must never block behind the same mutex Log() uses,
+// since a slow console log-viewer query would otherwise stall every
+// in-flight request's completion logging.
+func TestJSONLQueryDoesNotBlockOnWriteLock(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "test.log")
+	cfg := config.TokenLogConfig{Enabled: true, File: logPath}
+	logger, err := NewTokenLogger(cfg)
+	if err != nil {
+		t.Fatalf("NewTokenLogger failed: %v", err)
+	}
+	defer logger.Close()
+
+	logger.Log(UsageLog{Time: time.Now().UTC().Format(time.RFC3339), Backend: "b1", StatusCode: 200})
+
+	// Simulate a Log() call (or cleanup pass) in progress by holding the
+	// internal write lock for the duration of this test.
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
+
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := logger.QueryUsageLogs(UsageLogFilter{})
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("query failed: %v", err)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("QueryUsageLogs blocked on the write lock; opening the console log viewer would stall request logging")
+	}
+}
+
 func TestTokenLoggerDisabled(t *testing.T) {
 	cfg := config.TokenLogConfig{Enabled: false}
 	logger, err := NewTokenLogger(cfg)
