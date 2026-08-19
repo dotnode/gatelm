@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1142,6 +1143,97 @@ func TestStreamingConversionTextThenToolCalls(t *testing.T) {
 	}
 }
 
+// Full round trip: client speaks the canonical Responses format, backend
+// speaks Anthropic. The Anthropic backend's thinking block (with signature)
+// must survive relay through convertStream's generic pipeline and the
+// passthrough Responses encoder as a response.output_item.done event, since
+// that's the field a Responses-API client already knows to preserve across
+// turns.
+func TestStreamingAnthropicBackendPreservesThinkingSignatureForResponsesClient(t *testing.T) {
+	events := []string{
+		`data: {"type":"message_start","message":{"id":"msg_1","model":"claude-3-opus","usage":{"input_tokens":5}}}`,
+		``,
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`,
+		``,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Let me think."}}`,
+		``,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-e2e"}}`,
+		``,
+		`data: {"type":"content_block_stop","index":0}`,
+		``,
+		`data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}`,
+		``,
+		`data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Sunny."}}`,
+		``,
+		`data: {"type":"content_block_stop","index":1}`,
+		``,
+		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":8}}`,
+		``,
+		`data: {"type":"message_stop"}`,
+		``,
+	}
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flusher := w.(http.Flusher)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		for _, line := range events {
+			fmt.Fprintf(w, "%s\n", line)
+			flusher.Flush()
+		}
+	}))
+	defer backend.Close()
+
+	cfg := config.Config{
+		Backends: []config.Backend{{
+			Name:     "anthropic-backend",
+			URL:      backend.URL,
+			Protocol: "anthropic",
+			Models:   []config.Model{{Name: "claude-3-opus"}},
+		}},
+	}
+	srv := newTestServer(cfg)
+
+	proxyServer := httptest.NewServer(http.HandlerFunc(srv.Handle))
+	defer proxyServer.Close()
+
+	body := []byte(`{"model":"claude-3-opus","stream":true,"input":[{"type":"message","role":"user","content":"What's the weather?"}]}`)
+	req, _ := http.NewRequest("POST", proxyServer.URL+"/v1/responses", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	respStr := string(respBody)
+
+	var encryptedContent string
+	for _, line := range strings.Split(respStr, "\n") {
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var parsed struct {
+			Item struct {
+				Type             string `json:"type"`
+				EncryptedContent string `json:"encrypted_content"`
+			} `json:"item"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &parsed); err == nil && parsed.Item.Type == "reasoning" {
+			encryptedContent = parsed.Item.EncryptedContent
+			break
+		}
+	}
+	if encryptedContent == "" {
+		t.Fatalf("expected a reasoning item with encrypted_content in the response, got:\n%s", respStr)
+	}
+	payload, ok := decodeAnthropicThinkingPayload(encryptedContent)
+	if !ok || payload.Thinking != "Let me think." || payload.Signature != "sig-e2e" {
+		t.Fatalf("unexpected decoded payload: %+v ok=%v", payload, ok)
+	}
+}
+
 func TestRetryOnBackendFailure(t *testing.T) {
 	var primaryHits, secondaryHits atomic.Int32
 
@@ -1528,7 +1620,11 @@ func TestParseRetryAfter(t *testing.T) {
 	if d := parseRetryAfter("3"); d != 3*time.Second {
 		t.Fatalf("expected 3s, got %s", d)
 	}
-	future := time.Now().Add(2 * time.Second).Format(http.TimeFormat)
+	// http.TimeFormat's layout has a literal "GMT" suffix but Format() does
+	// not itself convert to UTC — without .UTC() here, in any non-UTC
+	// timezone the emitted string shows local wall-clock time mislabeled as
+	// GMT, which http.ParseTime then misreads by the zone offset.
+	future := time.Now().UTC().Add(2 * time.Second).Format(http.TimeFormat)
 	if d := parseRetryAfter(future); d <= 0 {
 		t.Fatalf("expected positive duration for HTTP date, got %s", d)
 	}
@@ -1615,6 +1711,78 @@ func TestFallbackWhenSingleBackendCircuitBroken(t *testing.T) {
 	state := hm.CircuitState("only-backend")
 	if state != "healthy" {
 		t.Fatalf("expected circuit healthy after success, got %s", state)
+	}
+}
+
+// A fallback-mode request (all candidates circuit-tripped or probe-exhausted)
+// never calls TryAcquireProbe, so it must never call ReleaseProbe either —
+// otherwise it can release a half-open slot it never acquired, which really
+// belongs to a different, concurrently probing request on the same backend.
+//
+// This exercises the specific ReleaseProbe call site that runs without any
+// following ReportSuccess/ReportFailure call (the non-retriable request-error
+// path): a canceled request context makes the outbound call fail with
+// "context canceled", which isRetriableNetworkError does not treat as
+// retriable (it only special-cases context.DeadlineExceeded), landing on
+// that path deterministically without needing a real network failure.
+func TestFallbackRequestDoesNotReleaseAnotherRequestsProbeSlot(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer backend.Close()
+
+	cfg := config.Config{
+		Backends: []config.Backend{{
+			Name:     "only-backend",
+			URL:      backend.URL,
+			Protocol: "openai",
+			Models:   []config.Model{{Name: "gpt-4", Aliases: []string{"my-model"}}},
+		}},
+	}
+	hm := NewHealthManager(HealthManagerConfig{
+		FailThreshold:       1,
+		RecoveryTimeout:     30 * time.Second,
+		HalfOpenMaxRequests: 1,
+	}, http.DefaultClient, logging.NewDebugLog(false, ""))
+	srv := New(cfg, &logging.TokenLogger{}, logging.NewDebugLog(false, ""), http.DefaultClient, hm, NewNoopObserver())
+
+	// Trip the circuit, then move the clock past RecoveryTimeout so the next
+	// probe attempt transitions to half-open.
+	now := time.Now()
+	hm.nowFunc = func() time.Time { return now }
+	hm.ReportFailure("only-backend")
+	hm.nowFunc = func() time.Time { return now.Add(31 * time.Second) }
+
+	// Simulate a different, concurrent request that legitimately acquired
+	// the single half-open probe slot and is still in flight.
+	if !hm.TryAcquireProbe("only-backend") {
+		t.Fatal("setup: expected to acquire the half-open probe slot")
+	}
+	if hm.CircuitState("only-backend") != "probing" {
+		t.Fatalf("setup: expected probing state, got %s", hm.CircuitState("only-backend"))
+	}
+
+	// With the slot already taken, this request finds no healthy candidate
+	// and falls back to the same backend anyway (bypassing TryAcquireProbe).
+	// Its already-canceled context makes the upstream call fail as a
+	// non-retriable request error, hitting the ReleaseProbe call that has no
+	// accompanying ReportSuccess/ReportFailure to also reset the counter.
+	bodyBytes := []byte(`{"model":"my-model","messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(bodyBytes))
+	ctx, cancel := context.WithCancel(req.Context())
+	cancel()
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+	srv.Handle(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502 for the canceled-context request error, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// The other request's probe slot must still be held — the fallback
+	// request above must not have released it.
+	if hm.TryAcquireProbe("only-backend") {
+		t.Fatal("fallback-mode request released a probe slot it never acquired")
 	}
 }
 

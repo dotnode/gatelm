@@ -586,12 +586,20 @@ func (s *Server) forwardWithRetry(
 		backend := cand.backend
 		backendModel := cand.backendModel
 
+		// probeAcquired tracks whether this attempt actually reserved a
+		// half-open probe slot via TryAcquireProbe below. It stays false in
+		// fallbackMode (which bypasses circuit state entirely), and every
+		// ReleaseProbe call in this iteration must be gated on it — otherwise
+		// a fallback-mode attempt that never acquired a slot could decrement
+		// halfOpenInFlight for a different, concurrently probing request on
+		// the same backend, letting more than HalfOpenMaxRequests through.
+		probeAcquired := false
 		if !fallbackMode {
-			probeAcquired := snap.health.TryAcquireProbe(backend.Name)
-			if !probeAcquired {
+			if !snap.health.TryAcquireProbe(backend.Name) {
 				s.Debug.Printf("[%s] skip backend %s (circuit=%s)", reqID, backend.Name, snap.health.CircuitState(backend.Name))
 				continue
 			}
+			probeAcquired = true
 		}
 
 		forwardedModel := backendModel
@@ -618,7 +626,9 @@ func (s *Server) forwardWithRetry(
 				s.Debug.Printf("[%s] backend %s failed (%s): %v", reqID, backend.Name, plan.reason, err)
 				continue
 			}
-			snap.health.ReleaseProbe(backend.Name)
+			if probeAcquired {
+				snap.health.ReleaseProbe(backend.Name)
+			}
 			http.Error(w, "upstream request failed", http.StatusBadGateway)
 			s.logUsage(logging.UsageLog{
 				Backend:         backend.Name,
@@ -645,7 +655,9 @@ func (s *Server) forwardWithRetry(
 				if plan.backoff > 0 {
 					s.Debug.Printf("[%s] backoff before next candidate: %s", reqID, plan.backoff)
 					if !sleepWithContext(r.Context(), plan.backoff) {
-						snap.health.ReleaseProbe(backend.Name)
+						if probeAcquired {
+							snap.health.ReleaseProbe(backend.Name)
+						}
 						http.Error(w, "request canceled", http.StatusGatewayTimeout)
 						s.logUsage(logging.UsageLog{
 							Backend:         backend.Name,
@@ -671,7 +683,7 @@ func (s *Server) forwardWithRetry(
 			return
 		}
 
-		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+		if probeAcquired && resp.StatusCode >= 400 && resp.StatusCode < 500 {
 			snap.health.ReleaseProbe(backend.Name)
 		}
 		snap.health.ReportSuccess(backend.Name)
@@ -749,7 +761,9 @@ func isRetriableNetworkError(err error) bool {
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) {
-		if netErr.Timeout() || netErr.Temporary() {
+		// Temporary() is deprecated: most errors it flagged are timeouts,
+		// which Timeout() already catches, and the rest are unreliable.
+		if netErr.Timeout() {
 			return true
 		}
 	}
@@ -930,8 +944,16 @@ func (s *Server) writeResponse(
 			s.Debug.Printf("[%s] streaming with protocol conversion: %s -> %s", reqID, backend.Protocol, clientProtocol)
 			decoder := backendCodec.NewStreamDecoder()
 			encoder := clientCodec.NewStreamEncoder(w)
-			usage, _ := convertStream(w, resp, decoder, encoder, s.Debug, reqID)
-			s.Debug.Printf("[%s] streaming conversion completed: model=%s duration=%s", reqID, usage.ResponseModel, time.Since(start))
+			usage, streamErr := convertStream(w, resp, decoder, encoder, s.Debug, reqID)
+			logCategory := errorCategory
+			logErr := ""
+			if streamErr != nil {
+				s.Debug.Printf("[%s] streaming conversion failed: %v", reqID, streamErr)
+				logCategory = "stream_error"
+				logErr = streamErr.Error()
+			} else {
+				s.Debug.Printf("[%s] streaming conversion completed: model=%s duration=%s", reqID, usage.ResponseModel, time.Since(start))
+			}
 			s.logUsage(logging.UsageLog{
 				Backend:          backend.Name,
 				ClientProtocol:   clientProtocol,
@@ -946,7 +968,8 @@ func (s *Server) writeResponse(
 				TotalTokens:      usage.TotalTokens,
 				InputTokens:      usage.InputTokens,
 				OutputTokens:     usage.OutputTokens,
-			}, start, reqID, retryCount, errorCategory)
+				Error:            logErr,
+			}, start, reqID, retryCount, logCategory)
 			return
 		}
 		isStreaming = false
