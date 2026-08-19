@@ -4,107 +4,175 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>AI Proxy Console</title>
+<script>
+(function () {
+  try {
+    var stored = localStorage.getItem('gatelm-console-theme')
+    var isDark = stored === 'dark' || (stored !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+    if (isDark) document.documentElement.classList.add('dark')
+  } catch (e) {}
+})()
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700&family=Syne:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-<script src="https://cdn-tailwindcss.vercel.app/"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        border: 'hsl(var(--border))',
+        input: 'hsl(var(--input))',
+        ring: 'hsl(var(--ring))',
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
+        card: { DEFAULT: 'hsl(var(--card))', foreground: 'hsl(var(--card-foreground))' },
+        popover: { DEFAULT: 'hsl(var(--popover))', foreground: 'hsl(var(--popover-foreground))' },
+        primary: { DEFAULT: 'hsl(var(--primary))', foreground: 'hsl(var(--primary-foreground))' },
+        secondary: { DEFAULT: 'hsl(var(--secondary))', foreground: 'hsl(var(--secondary-foreground))' },
+        muted: { DEFAULT: 'hsl(var(--muted))', foreground: 'hsl(var(--muted-foreground))' },
+        accent: { DEFAULT: 'hsl(var(--accent))', foreground: 'hsl(var(--accent-foreground))' },
+        destructive: { DEFAULT: 'hsl(var(--destructive))', foreground: 'hsl(var(--destructive-foreground))' },
+        success: { DEFAULT: 'hsl(var(--success))', foreground: 'hsl(var(--success-foreground))' },
+        warning: { DEFAULT: 'hsl(var(--warning))', foreground: 'hsl(var(--warning-foreground))' },
+      },
+      borderRadius: {
+        xl: 'calc(var(--radius) + 4px)',
+        lg: 'var(--radius)',
+        md: 'calc(var(--radius) - 2px)',
+        sm: 'calc(var(--radius) - 4px)',
+      },
+      fontFamily: {
+        sans: ['Outfit', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+      },
+    },
+  },
+}
+</script>
 <style>
 :root {
-  font-family: "Outfit", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  color: #111111;
-  background: #ffffff;
-  --font-sans: "Outfit", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  --mono-font: "JetBrains Mono", "SFMono-Regular", ui-monospace, monospace;
-  --display-font: "Syne", var(--font-sans);
-  --bg-base: #ffffff;
-  --bg-surface: #fafafa;
-  --bg-card: #ffffff;
-  --bg-elevated: #fcfcfc;
-  --bg-soft: #fafafa;
-  --bg-accent: #eff6ff;
-  --bg-accent-strong: #dbeafe;
-  --bg-danger-soft: #fef2f2;
-  --bg-warning-soft: #fff7ed;
-  --bg-success-soft: #f0fdf4;
-  --text-primary: #111111;
-  --text-secondary: #525252;
-  --text-muted: #737373;
-  --text-accent: #0070f3;
-  --text-danger: #dc2626;
-  --text-success: #15803d;
-  --text-warning: #d97706;
-  --accent: #0070f3;
-  --accent-hover: #0059c9;
-  --accent-strong: #0050b3;
-  --accent-soft: rgba(0, 112, 243, 0.1);
-  --border-dim: #f3f4f6;
-  --border-subtle: #eaeaea;
-  --border-default: #d4d4d8;
-  --border-strong: #bfdbfe;
-  --shadow-card: none;
-  --shadow-soft: none;
-  --shadow-focus: 0 0 0 3px rgba(0, 112, 243, 0.14);
-  --radius-card: 6px;
-  --radius-control: 4px;
-  --transition-base: 160ms ease;
+  color-scheme: light;
+  --background: 0 0% 100%;
+  --foreground: 240 10% 4%;
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 4%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 4%;
+  --primary: 240 6% 10%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 240 5% 96%;
+  --secondary-foreground: 240 6% 10%;
+  --muted: 240 5% 96%;
+  --muted-foreground: 240 4% 46%;
+  --accent: 240 5% 94%;
+  --accent-foreground: 240 6% 10%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --success: 142 71% 32%;
+  --success-foreground: 0 0% 98%;
+  --warning: 32 94% 43%;
+  --warning-foreground: 0 0% 98%;
+  --border: 240 6% 90%;
+  --input: 240 6% 88%;
+  --ring: 240 6% 10%;
+  --radius: 0.625rem;
+  --font-sans: 'Outfit', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --shadow-xs: 0 1px 2px 0 hsl(240 10% 4% / 0.04);
+  --shadow-sm: 0 1px 3px 0 hsl(240 10% 4% / 0.06), 0 1px 2px -1px hsl(240 10% 4% / 0.06);
+  --shadow-md: 0 10px 30px -12px hsl(240 10% 4% / 0.18), 0 4px 8px -4px hsl(240 10% 4% / 0.08);
+}
+html.dark {
+  color-scheme: dark;
+  --background: 240 10% 4%;
+  --foreground: 0 0% 96%;
+  --card: 240 8% 8%;
+  --card-foreground: 0 0% 96%;
+  --popover: 240 8% 9%;
+  --popover-foreground: 0 0% 96%;
+  --primary: 0 0% 96%;
+  --primary-foreground: 240 6% 10%;
+  --secondary: 240 5% 16%;
+  --secondary-foreground: 0 0% 96%;
+  --muted: 240 5% 15%;
+  --muted-foreground: 240 5% 65%;
+  --accent: 240 5% 17%;
+  --accent-foreground: 0 0% 96%;
+  --destructive: 0 63% 56%;
+  --destructive-foreground: 0 0% 98%;
+  --success: 142 55% 47%;
+  --success-foreground: 240 10% 4%;
+  --warning: 32 88% 56%;
+  --warning-foreground: 240 10% 4%;
+  --border: 240 6% 20%;
+  --input: 240 6% 22%;
+  --ring: 240 8% 68%;
+  --shadow-xs: 0 1px 2px 0 hsl(0 0% 0% / 0.3);
+  --shadow-sm: 0 1px 3px 0 hsl(0 0% 0% / 0.4), 0 1px 2px -1px hsl(0 0% 0% / 0.4);
+  --shadow-md: 0 20px 40px -16px hsl(0 0% 0% / 0.55), 0 4px 10px -4px hsl(0 0% 0% / 0.4);
 }
 * { box-sizing: border-box; }
-html, body, #app { margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg-base); }
-body { color: var(--text-primary); font-family: var(--font-sans); }
+html, body, #app { margin: 0; min-width: 320px; min-height: 100vh; }
+body { background: hsl(var(--background)); color: hsl(var(--foreground)); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; transition: background-color .2s ease, color .2s ease; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #d4d4d8; border: 2px solid var(--bg-base); border-radius: 999px; }
-::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
-button, input, select, textarea { font: inherit; }
+::-webkit-scrollbar-thumb { background: hsl(var(--border)); border: 2px solid hsl(var(--background)); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.5); }
+button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
-button:disabled { cursor: not-allowed; opacity: 0.55; }
-.console-display { font-family: var(--display-font); letter-spacing: -0.025em; }
-.console-stat-label, .console-field-label { font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text-muted); }
+button:disabled { cursor: not-allowed; opacity: 0.5; }
+.console-display { font-weight: 600; letter-spacing: -0.02em; }
+.console-stat-label, .console-field-label { font-size: 11px; font-weight: 500; color: hsl(var(--muted-foreground)); }
 .console-field { display: block; }
-.console-field-label { display: block; margin-bottom: 0.35rem; }
-.console-input { width: 100%; min-height: 32px; padding: 0.5rem 0.75rem; font-size: 0.8125rem; color: var(--text-primary); background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-control); box-shadow: var(--shadow-soft); transition: border-color var(--transition-base), box-shadow var(--transition-base), background-color var(--transition-base); outline: none; }
-.console-input::placeholder { color: var(--text-muted); }
-.console-input:hover { border-color: var(--border-default); }
-.console-input:focus { border-color: var(--accent); box-shadow: var(--shadow-focus); background: #fff; }
+.console-field-label { display: block; margin-bottom: 0.4rem; }
+.console-input { display: block; width: 100%; min-height: 36px; padding: 0.5rem 0.75rem; font-size: 0.8125rem; color: hsl(var(--foreground)); background: hsl(var(--background)); border: 1px solid hsl(var(--input)); border-radius: calc(var(--radius) - 2px); box-shadow: var(--shadow-xs); transition: border-color .15s ease, box-shadow .15s ease; outline: none; }
+.console-input::placeholder { color: hsl(var(--muted-foreground)); }
+.console-input:hover { border-color: hsl(var(--ring) / 0.4); }
+.console-input:focus { border-color: hsl(var(--ring)); box-shadow: 0 0 0 3px hsl(var(--ring) / 0.16); }
 .console-textarea { min-height: 5.5rem; resize: vertical; }
-.console-mono { font-family: var(--mono-font); }
-.console-button { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 32px; padding: 0.45rem 0.75rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-control); background: var(--bg-card); color: var(--text-secondary); font-size: 0.8125rem; font-weight: 600; transition: color var(--transition-base), background-color var(--transition-base), border-color var(--transition-base), box-shadow var(--transition-base); box-shadow: var(--shadow-soft); }
-.console-button:hover { background: var(--bg-surface); color: var(--text-primary); border-color: var(--border-default); }
-.console-btn-primary { background: var(--accent); border-color: var(--accent); color: #ffffff; }
-.console-btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: #ffffff; }
-.console-nav-button { width: 100%; text-align: left; justify-content: flex-start; border-radius: var(--radius-control); padding: 0.5rem 0.625rem; border: 1px solid transparent; background: transparent; box-shadow: none; }
-.console-nav-active { background: var(--bg-card); border-color: var(--border-subtle); color: var(--text-primary); }
-.console-nav-inactive { color: var(--text-secondary); }
-.console-nav-inactive:hover { background: rgba(255, 255, 255, 0.65); border-color: var(--border-subtle); color: var(--text-primary); }
-.console-subtab-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.125rem; padding: 0.125rem; border: 1px solid rgba(228, 228, 231, 0.7); border-radius: 0.85rem; background: rgba(250, 250, 250, 0.65); }
-.console-subtab-button { position: relative; display: inline-flex; align-items: center; justify-content: center; min-height: 38px; padding: 0.55rem 0.8rem; border: 1px solid transparent; border-radius: 0.72rem; font-size: 0.82rem; font-weight: 600; letter-spacing: -0.01em; transition: color var(--transition-base), background-color var(--transition-base), border-color var(--transition-base), box-shadow var(--transition-base); }
-.console-subtab-active { background: rgba(255, 255, 255, 0.82); border-color: rgba(255, 255, 255, 0.9); color: var(--text-primary); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03); }
-.console-subtab-active::after { content: ""; position: absolute; left: 1.15rem; right: 1.15rem; bottom: 0.4rem; height: 1px; border-radius: 999px; background: rgba(0, 112, 243, 0.75); }
-.console-subtab-inactive { background: transparent; color: var(--text-muted); }
-.console-subtab-inactive:hover { background: rgba(255,255,255,0.42); color: var(--text-primary); }
+.console-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.console-button { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; min-height: 36px; padding: 0.45rem 0.875rem; border: 1px solid hsl(var(--border)); border-radius: calc(var(--radius) - 2px); background: hsl(var(--background)); color: hsl(var(--foreground)); font-size: 0.8125rem; font-weight: 500; transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease, transform .1s ease; box-shadow: var(--shadow-xs); }
+.console-button:hover { background: hsl(var(--accent)); border-color: hsl(var(--ring) / 0.3); }
+.console-button:active { transform: translateY(1px); }
+.console-button:focus-visible { outline: none; box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring) / 0.5); }
+.console-btn-primary { background: hsl(var(--primary)); border-color: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
+.console-btn-primary:hover { background: hsl(var(--primary) / 0.88); border-color: hsl(var(--primary) / 0.88); }
+.console-btn-danger { border-color: hsl(var(--destructive) / 0.35); background: hsl(var(--destructive) / 0.08); color: hsl(var(--destructive)); }
+.console-btn-danger:hover { background: hsl(var(--destructive) / 0.16); border-color: hsl(var(--destructive) / 0.5); }
+.console-nav-button { width: 100%; text-align: left; justify-content: flex-start; border-radius: calc(var(--radius) - 2px); padding: 0.5rem 0.625rem; border: 1px solid transparent; background: transparent; box-shadow: none; color: hsl(var(--muted-foreground)); font-weight: 500; }
+.console-nav-button:hover { background: hsl(var(--accent) / 0.7); color: hsl(var(--accent-foreground)); }
+.console-nav-active { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); font-weight: 600; }
+.console-subtab-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.2rem; padding: 0.2rem; border-radius: calc(var(--radius) + 2px); background: hsl(var(--muted)); }
+.console-subtab-button { position: relative; display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0.5rem 0.75rem; border-radius: calc(var(--radius) - 2px); font-size: 0.8125rem; font-weight: 500; color: hsl(var(--muted-foreground)); transition: all .15s ease; }
+.console-subtab-active { background: hsl(var(--background)); color: hsl(var(--foreground)); box-shadow: var(--shadow-xs); }
+.console-subtab-inactive:hover { color: hsl(var(--foreground)); }
 @media (max-width: 767px) { .console-subtab-list { grid-template-columns: 1fr; } }
-.console-card { position: relative; background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-card); box-shadow: var(--shadow-card); transition: border-color var(--transition-base), box-shadow var(--transition-base); }
-.console-card:hover { border-color: var(--border-default); }
-.console-badge-healthy, .console-badge-tripped, .console-badge-probing { border-radius: 999px; border-style: solid; font-weight: 600; }
-.console-badge-healthy { border-color: #bbf7d0; background: var(--bg-success-soft); color: var(--text-success); }
-.console-badge-tripped { border-color: #fecaca; background: var(--bg-danger-soft); color: var(--text-danger); }
-.console-badge-probing { border-color: #fed7aa; background: var(--bg-warning-soft); color: var(--text-warning); }
-.console-pulse { display: inline-block; width: 8px; height: 8px; margin-right: 6px; vertical-align: middle; border-radius: 50%; }
-.console-pulse-green { background: #10b981; animation: console-pulse-dot 2s ease-in-out infinite; }
-.console-pulse-red { background: #ef4444; animation: console-pulse-dot 2s ease-in-out infinite; }
-.console-pulse-amber { background: #f59e0b; animation: console-pulse-dot 2s ease-in-out infinite; }
+.console-card { position: relative; background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: var(--radius); box-shadow: var(--shadow-xs); transition: border-color .15s ease; }
+.console-card--interactive:hover { border-color: hsl(var(--ring) / 0.3); }
+.console-badge { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.6875rem; font-weight: 600; border: 1px solid transparent; line-height: 1.4; }
+.console-badge-healthy { background: hsl(var(--success) / 0.12); color: hsl(var(--success)); border-color: hsl(var(--success) / 0.28); }
+.console-badge-tripped { background: hsl(var(--destructive) / 0.12); color: hsl(var(--destructive)); border-color: hsl(var(--destructive) / 0.28); }
+.console-badge-probing { background: hsl(var(--warning) / 0.14); color: hsl(var(--warning)); border-color: hsl(var(--warning) / 0.3); }
+.console-badge-disabled { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); border-color: hsl(var(--border)); }
+.console-pulse { display: inline-block; width: 6px; height: 6px; border-radius: 50%; }
+.console-pulse-healthy { background: hsl(var(--success)); }
+.console-pulse-tripped { background: hsl(var(--destructive)); }
+.console-pulse-probing { background: hsl(var(--warning)); animation: console-pulse-dot 1.6s ease-in-out infinite; }
+.console-pulse-disabled { background: hsl(var(--muted-foreground)); }
 .console-fade-up { animation: console-fade-up 300ms ease-out both; }
 .console-fade-in { animation: console-fade-in 200ms ease-out both; }
 .console-slide-left { animation: console-slide-left 220ms ease-out both; }
 .console-delay-1 { animation-delay: 0.04s; } .console-delay-2 { animation-delay: 0.08s; } .console-delay-3 { animation-delay: 0.12s; } .console-delay-4 { animation-delay: 0.16s; } .console-delay-5 { animation-delay: 0.2s; } .console-delay-6 { animation-delay: 0.24s; } .console-delay-7 { animation-delay: 0.28s; }
 .console-table { width: 100%; font-size: 0.8125rem; border-collapse: separate; border-spacing: 0; }
-.console-table thead { background: var(--bg-surface); }
-.console-table th { padding: 0.5rem 0.75rem; text-align: left; font-size: 0.8125rem; font-weight: 600; color: var(--text-muted); border-bottom: 1px solid var(--border-subtle); }
-.console-table tbody tr { transition: background-color var(--transition-base); }
-.console-table tbody tr:hover { background: #fafbff; }
-.console-table td { padding: 0.5rem 0.75rem; color: var(--text-secondary); border-bottom: 1px solid var(--border-dim); }
-.console-gradient-text { color: var(--text-primary); }
+.console-table th { padding: 0.55rem 0.75rem; text-align: left; font-size: 0.75rem; font-weight: 500; color: hsl(var(--muted-foreground)); border-bottom: 1px solid hsl(var(--border)); }
+.console-table tbody tr { transition: background-color .15s ease; }
+.console-table tbody tr:hover { background: hsl(var(--muted) / 0.5); }
+.console-table td { padding: 0.6rem 0.75rem; color: hsl(var(--foreground)); border-bottom: 1px solid hsl(var(--border) / 0.7); }
+.console-gradient-text { color: hsl(var(--foreground)); }
 .console-icon-button { width: 2.25rem; min-width: 2.25rem; padding: 0; }
 .console-hamburger-icon { display: inline-flex; flex-direction: column; justify-content: center; gap: 4px; width: 16px; }
 .console-hamburger-icon span { display: block; width: 16px; height: 1.5px; background: currentColor; }
@@ -113,70 +181,92 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .console-close-icon::before, .console-close-icon::after { content: ""; position: absolute; left: 0; top: 0; }
 .console-close-icon::before { transform: rotate(45deg); }
 .console-close-icon::after { transform: rotate(-45deg); }
-.console-mobile-backdrop { position: fixed; inset: 0; z-index: 40; background: rgba(6, 10, 19, 0.6); backdrop-filter: blur(2px); }
-.console-mobile-drawer { position: fixed; inset: 0 auto 0 0; z-index: 50; display: flex; width: min(20rem, calc(100vw - 2rem)); flex-direction: column; }
+.console-mobile-backdrop { position: fixed; inset: 0; z-index: 40; background: hsl(0 0% 0% / 0.5); backdrop-filter: blur(2px); }
+.console-mobile-drawer { position: fixed; inset: 0 auto 0 0; z-index: 50; display: flex; width: min(20rem, calc(100vw - 2rem)); flex-direction: column; background: hsl(var(--card)); border-right: 1px solid hsl(var(--border)); }
 .console-drawer-enter-active, .console-drawer-leave-active, .console-drawer-fade-enter-active, .console-drawer-fade-leave-active, .console-tab-fade-enter-active, .console-tab-fade-leave-active, .console-toast-enter-active, .console-toast-leave-active, .console-editor-drawer-enter-active, .console-editor-drawer-leave-active, .console-editor-backdrop-enter-active, .console-editor-backdrop-leave-active { transition: all 150ms ease; }
 .console-drawer-enter-from, .console-drawer-leave-to { transform: translateX(-100%); }
 .console-editor-drawer-enter-from, .console-editor-drawer-leave-to { transform: translateX(100%); }
 .console-drawer-fade-enter-from, .console-drawer-fade-leave-to, .console-tab-fade-enter-from, .console-tab-fade-leave-to, .console-toast-enter-from, .console-toast-leave-to, .console-editor-backdrop-enter-from, .console-editor-backdrop-leave-to { opacity: 0; }
-.console-editor-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(6, 10, 19, 0.44); backdrop-filter: blur(2px); }
-.console-editor-drawer { position: fixed; inset: 0 0 0 auto; z-index: 70; display: flex; width: min(48rem, 100vw); flex-direction: column; background: var(--bg-card); border-left: 1px solid var(--border-subtle); box-shadow: -12px 0 48px rgba(15, 23, 42, 0.12); }
-.console-editor-drawer-body { flex: 1; overflow-y: auto; padding: 1rem; }
+.console-editor-backdrop { position: fixed; inset: 0; z-index: 60; background: hsl(0 0% 0% / 0.45); backdrop-filter: blur(2px); }
+.console-editor-drawer { position: fixed; inset: 0 0 0 auto; z-index: 70; display: flex; width: min(48rem, 100vw); flex-direction: column; background: hsl(var(--card)); border-left: 1px solid hsl(var(--border)); box-shadow: var(--shadow-md); }
+.console-editor-drawer-body { flex: 1; overflow-y: auto; padding: 1.25rem; }
 .console-summary-grid { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
-.console-summary-item { border: 1px solid var(--border-subtle); border-radius: 0.5rem; padding: 0.75rem; background: var(--bg-elevated); }
-.console-inline-code { display: inline-flex; align-items: center; border-radius: 999px; border: 1px solid var(--border-subtle); background: var(--bg-card); padding: 0.125rem 0.5rem; font-family: var(--mono-font); font-size: 11px; line-height: 1.5; color: var(--text-secondary); }
+.console-summary-item { border: 1px solid hsl(var(--border)); border-radius: calc(var(--radius) - 2px); padding: 0.75rem; background: hsl(var(--muted) / 0.4); }
+.console-inline-code { display: inline-flex; align-items: center; border-radius: 999px; border: 1px solid hsl(var(--border)); background: hsl(var(--muted) / 0.5); padding: 0.125rem 0.55rem; font-family: var(--font-mono); font-size: 11px; line-height: 1.5; color: hsl(var(--muted-foreground)); }
 .console-kv-list { display: grid; gap: 0.5rem; }
-.console-kv-item { display: grid; gap: 0.5rem; grid-template-columns: minmax(90px, 120px) minmax(0, 1fr); align-items: start; padding: 0.625rem 0.75rem; border: 1px solid var(--border-subtle); border-radius: 0.5rem; background: var(--bg-elevated); }
+.console-kv-item { display: grid; gap: 0.5rem; grid-template-columns: minmax(90px, 120px) minmax(0, 1fr); align-items: start; padding: 0.625rem 0.75rem; border: 1px solid hsl(var(--border)); border-radius: calc(var(--radius) - 2px); background: hsl(var(--muted) / 0.35); }
 .console-backend-meta { display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
-.console-backend-meta-item { min-width: 0; padding: 0.625rem 0.75rem; border: 1px solid var(--border-subtle); border-radius: 0.5rem; background: var(--bg-elevated); }
+.console-backend-meta-item { min-width: 0; padding: 0.625rem 0.75rem; border: 1px solid hsl(var(--border)); border-radius: calc(var(--radius) - 2px); background: hsl(var(--muted) / 0.35); }
 .console-backend-meta-item-wide { grid-column: span 2; }
-.console-backend-models { overflow: hidden; border: 1px solid var(--border-subtle); border-radius: 0.75rem; background: var(--bg-elevated); }
+.console-backend-models { overflow: hidden; border: 1px solid hsl(var(--border)); border-radius: calc(var(--radius) - 1px); background: hsl(var(--muted) / 0.25); }
 .console-model-row { padding: 0.75rem; }
-.console-model-row + .console-model-row { border-top: 1px solid var(--border-dim); }
-.console-model-statline { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.75rem; font-size: 11px; line-height: 1.45; color: var(--text-secondary); }
+.console-model-row + .console-model-row { border-top: 1px solid hsl(var(--border) / 0.7); }
+.console-model-statline { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.75rem; font-size: 11px; line-height: 1.45; color: hsl(var(--muted-foreground)); }
 .console-text-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .console-line-clamp-1 { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 1; }
 @media (max-width: 767px) { .console-backend-meta-item-wide { grid-column: span 1; } }
-.console-unsaved-dot { display: inline-block; width: 8px; height: 8px; border-radius: 999px; background: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.16); }
-.console-toast-stack { position: fixed; right: 1rem; bottom: 1rem; z-index: 80; display: flex; width: min(22rem, calc(100vw - 2rem)); flex-direction: column; gap: 0.75rem; }
+.console-unsaved-dot { display: inline-block; width: 8px; height: 8px; border-radius: 999px; background: hsl(var(--warning)); box-shadow: 0 0 0 4px hsl(var(--warning) / 0.18); }
+.console-toast-stack { position: fixed; right: 1rem; bottom: 1rem; z-index: 80; display: flex; width: min(22rem, calc(100vw - 2rem)); flex-direction: column; gap: 0.6rem; }
 .console-toast-move { transition: transform 150ms ease; }
-.console-toast { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; padding: 0.875rem 0.875rem 0.875rem 1rem; border: 1px solid var(--border-subtle); border-left-width: 4px; border-radius: var(--radius-card); background: rgba(255, 255, 255, 0.96); box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08); }
-.console-toast-success { border-left-color: #10b981; }
-.console-toast-error { border-left-color: #ef4444; }
-.console-toast-info { border-left-color: #0070f3; }
-.console-toast-text { flex: 1; font-size: 0.8125rem; line-height: 1.45; color: var(--text-primary); }
-.console-toast-close { border: 0; background: transparent; padding: 0; color: var(--text-muted); line-height: 1; }
-.console-empty-state { display: flex; min-height: 160px; flex-direction: column; align-items: center; justify-content: center; gap: 0.5rem; padding: 2rem 1rem; color: var(--text-muted); text-align: center; }
-.console-empty-icon { width: 2rem; height: 2rem; border: 1px solid var(--border-subtle); border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-family: var(--mono-font); color: var(--text-secondary); }
-.console-terminal-output { background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-card); font-family: var(--mono-font); color: var(--text-primary); }
-select.console-input { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E"); background-position: right 0.75rem center; background-repeat: no-repeat; background-size: 0.95rem; padding-right: 2rem; }
-select.console-input option { background: #ffffff; color: var(--text-primary); }
+.console-toast { display: flex; align-items: flex-start; gap: 0.65rem; padding: 0.8rem 0.8rem 0.8rem 0.9rem; border: 1px solid hsl(var(--border)); border-radius: var(--radius); background: hsl(var(--card)); box-shadow: var(--shadow-md); }
+.console-toast-icon { flex-shrink: 0; margin-top: 0.05rem; }
+.console-toast-success .console-toast-icon { color: hsl(var(--success)); }
+.console-toast-error .console-toast-icon { color: hsl(var(--destructive)); }
+.console-toast-info .console-toast-icon { color: hsl(var(--muted-foreground)); }
+.console-toast-text { flex: 1; font-size: 0.8125rem; line-height: 1.45; color: hsl(var(--foreground)); }
+.console-toast-close { border: 0; background: transparent; padding: 0; color: hsl(var(--muted-foreground)); line-height: 1; }
+.console-toast-close:hover { color: hsl(var(--foreground)); }
+.console-empty-state { display: flex; min-height: 160px; flex-direction: column; align-items: center; justify-content: center; gap: 0.5rem; padding: 2rem 1rem; color: hsl(var(--muted-foreground)); text-align: center; }
+.console-empty-icon { width: 2.25rem; height: 2.25rem; border: 1px solid hsl(var(--border)); border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; color: hsl(var(--muted-foreground)); }
+.console-terminal-output { background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: var(--radius); color: hsl(var(--foreground)); }
+select.console-input { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%2371717a' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E"); background-position: right 0.7rem center; background-repeat: no-repeat; background-size: 0.9rem; padding-right: 2.1rem; }
+select.console-input option { background: hsl(var(--background)); color: hsl(var(--foreground)); }
+.console-icon-inline-btn { display: inline-flex; align-items: center; justify-content: center; width: 1.75rem; height: 1.75rem; border-radius: calc(var(--radius) - 4px); color: hsl(var(--muted-foreground)); background: transparent; border: none; }
+.console-icon-inline-btn:hover { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
+.console-input-icon-wrap { position: relative; }
+.console-input-icon-wrap .console-input { padding-right: 2.4rem; }
+.console-input-icon-btn { position: absolute; right: 0.3rem; top: 50%; transform: translateY(-50%); }
+.console-spin { animation: console-spin 0.8s linear infinite; }
 @keyframes console-fade-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes console-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes console-slide-left { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
-@keyframes console-pulse-dot { 0%, 100% { transform: scale(1); opacity: 0.85; } 50% { transform: scale(1.3); opacity: 1; } }
+@keyframes console-pulse-dot { 0%, 100% { transform: scale(1); opacity: 0.85; } 50% { transform: scale(1.35); opacity: 1; } }
+@keyframes console-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .console-fade-up, .console-fade-in, .console-slide-left { animation: none !important; }
+  .console-pulse-probing { animation: none !important; }
+}
 </style>
 </head>
 <body>
 <div id="app">
   <transition-group name="console-toast" tag="div" class="console-toast-stack">
     <div v-for="toast in toasts" :key="toast.id" class="console-toast" :class="'console-toast-'+toast.type">
+      <div class="console-toast-icon">
+        <component :is="toast.type === 'success' ? 'icon-check-circle' : toast.type === 'error' ? 'icon-alert-triangle' : 'icon-info'" class="h-4 w-4" ></component>
+      </div>
       <div class="console-toast-text">{{ toast.text }}</div>
       <button class="console-toast-close" @click="removeToast(toast.id)">&times;</button>
     </div>
   </transition-group>
 
   <!-- Login -->
-  <div v-if="auth.enabled && !auth.authenticated" class="relative flex min-h-screen items-center justify-center px-4 py-8" style="background: var(--bg-base);">
+  <div v-if="auth.enabled && !auth.authenticated" class="relative flex min-h-screen items-center justify-center bg-background px-4 py-8">
     <div class="w-full max-w-[360px]">
-      <section class="console-card relative overflow-hidden p-4">
+      <section class="console-card relative overflow-hidden p-6">
         <div class="space-y-1.5">
-          <div class="console-display text-lg font-semibold tracking-tight">AI Proxy</div>
-          <h1 class="text-sm font-medium text-[var(--text-secondary)]">登录管理台</h1>
+          <div class="console-display text-lg tracking-tight">AI Proxy</div>
+          <h1 class="text-sm font-medium text-muted-foreground">登录管理台</h1>
         </div>
-        <label class="mt-4 block">
+        <label class="mt-5 block">
           <span class="console-field-label">管理密码</span>
-          <input v-model="auth.password" type="password" class="console-input" placeholder="输入管理密码" @keyup.enter="login" />
+          <div class="console-input-icon-wrap">
+            <input v-model="auth.password" :type="showLoginPassword ? 'text' : 'password'" class="console-input" placeholder="输入管理密码" @keyup.enter="login" />
+            <button type="button" class="console-icon-inline-btn console-input-icon-btn" @click="showLoginPassword = !showLoginPassword" :aria-label="showLoginPassword ? '隐藏密码' : '显示密码'">
+              <icon-eye-off v-if="showLoginPassword" class="h-4 w-4" ></icon-eye-off>
+              <icon-eye v-else class="h-4 w-4" ></icon-eye>
+            </button>
+          </div>
         </label>
         <button class="console-button console-btn-primary mt-4 w-full" @click="login">登录</button>
       </section>
@@ -184,20 +274,20 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
   </div>
 
   <!-- Main -->
-  <div v-else class="flex min-h-screen" style="background: var(--bg-base);">
+  <div v-else class="flex min-h-screen bg-background text-foreground">
     <transition name="console-drawer-fade">
       <div v-if="mobileMenuOpen" class="console-mobile-backdrop xl:hidden" @click="mobileMenuOpen = false"></div>
     </transition>
     <transition name="console-drawer">
-      <aside v-if="mobileMenuOpen" class="console-mobile-drawer xl:hidden" style="background: var(--bg-surface); border-right: 1px solid var(--border-subtle);">
-        <div class="flex items-center justify-between px-4 py-4" style="border-bottom: 1px solid var(--border-subtle);">
-          <h1 class="console-display text-lg font-semibold tracking-tight">AI Proxy</h1>
+      <aside v-if="mobileMenuOpen" class="console-mobile-drawer xl:hidden">
+        <div class="flex items-center justify-between border-b border-border px-4 py-4">
+          <h1 class="console-display text-lg tracking-tight">AI Proxy</h1>
           <button class="console-button console-icon-button" @click="mobileMenuOpen = false" aria-label="关闭菜单"><span class="console-close-icon"></span></button>
         </div>
         <div class="flex-1 space-y-4 px-4 py-4">
           <div class="space-y-1">
-            <button v-for="tab in tabs" :key="'mobile-'+tab.key" @click="setActiveTab(tab.key)" class="console-nav-button console-slide-left" :class="activeTab === tab.key ? 'console-nav-active' : 'console-nav-inactive'">
-              <span class="block text-sm font-medium">{{ tab.label }}</span>
+            <button v-for="tab in tabs" :key="'mobile-'+tab.key" @click="setActiveTab(tab.key)" class="console-nav-button console-slide-left" :class="activeTab === tab.key ? 'console-nav-active' : ''">
+              <span class="block text-sm">{{ tab.label }}</span>
             </button>
           </div>
         </div>
@@ -205,40 +295,44 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
     </transition>
 
     <!-- Desktop sidebar -->
-    <aside class="hidden w-56 shrink-0 xl:flex xl:flex-col" style="border-right: 1px solid var(--border-subtle); background: var(--bg-surface);">
-      <div class="px-4 py-4" style="border-bottom: 1px solid var(--border-subtle);">
-        <h1 class="console-display text-lg font-semibold tracking-tight">AI Proxy</h1>
+    <aside class="hidden w-60 shrink-0 border-r border-border bg-muted/30 xl:flex xl:flex-col">
+      <div class="border-b border-border px-4 py-4">
+        <h1 class="console-display text-lg tracking-tight">AI Proxy</h1>
       </div>
       <div class="flex-1 space-y-4 px-4 py-4">
         <div class="space-y-1">
-          <button v-for="tab in tabs" :key="tab.key" @click="setActiveTab(tab.key)" class="console-nav-button console-slide-left" :class="activeTab === tab.key ? 'console-nav-active' : 'console-nav-inactive'">
-            <span class="block text-sm font-medium">{{ tab.label }}</span>
+          <button v-for="tab in tabs" :key="tab.key" @click="setActiveTab(tab.key)" class="console-nav-button console-slide-left" :class="activeTab === tab.key ? 'console-nav-active' : ''">
+            <span class="block text-sm">{{ tab.label }}</span>
           </button>
         </div>
       </div>
     </aside>
 
-    <main class="flex-1" style="background: var(--bg-base);">
+    <main class="flex-1 bg-background">
       <!-- Top bar -->
-      <div class="px-4 py-3 lg:px-6" :style="{ borderBottom: '1px solid ' + (hasUnsavedChanges ? '#f59e0b' : 'var(--border-subtle)'), background: 'var(--bg-base)', boxShadow: hasUnsavedChanges ? 'inset 0 -1px 0 rgba(245, 158, 11, 0.35)' : 'none' }">
+      <div class="border-b px-4 py-3 lg:px-6" :class="hasUnsavedChanges ? 'border-warning' : 'border-border'">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div class="flex items-center gap-3">
             <button class="console-button console-icon-button xl:hidden" @click="mobileMenuOpen = true" aria-label="打开菜单">
               <span class="console-hamburger-icon"><span></span><span></span><span></span></span>
             </button>
-            <h2 class="console-display text-[18px] font-semibold tracking-tight">{{ activeTabMeta.title }}</h2>
+            <h2 class="console-display text-[18px] tracking-tight">{{ activeTabMeta.title }}</h2>
           </div>
           <div class="flex items-center gap-2">
-            <button class="console-button" @click="refreshAll">刷新</button>
-            <button v-if="auth.enabled" class="console-button" style="border-color: #fecaca; background: var(--bg-danger-soft); color: var(--text-danger);" @click="logout">退出</button>
+            <button class="console-button console-icon-button" @click="toggleTheme" :aria-label="theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'">
+              <icon-sun v-if="theme === 'dark'" class="h-4 w-4" ></icon-sun>
+              <icon-moon v-else class="h-4 w-4" ></icon-moon>
+            </button>
+            <button class="console-button" @click="refreshAll"><icon-refresh class="h-3.5 w-3.5" ></icon-refresh>刷新</button>
+            <button v-if="auth.enabled" class="console-button console-btn-danger" @click="logout"><icon-logout class="h-3.5 w-3.5" ></icon-logout>退出</button>
           </div>
         </div>
       </div>
 
       <div class="px-4 py-4 lg:px-6 lg:py-5">
         <div class="space-y-4">
-          <div v-if="loading" class="console-fade-in flex items-center rounded-[6px] border px-3 py-2 text-[13px] leading-5" style="border-color: #c7d2fe; background: var(--bg-accent); color: var(--text-accent);">
-            <span class="console-pulse console-pulse-green"></span> 加载中...
+          <div v-if="loading" class="console-fade-in flex items-center gap-2 rounded-[6px] border border-border bg-muted/40 px-3 py-2 text-[13px] leading-5 text-foreground">
+            <icon-refresh class="console-spin h-3.5 w-3.5 text-muted-foreground" ></icon-refresh> 加载中...
           </div>
 
           <transition name="console-tab-fade" mode="out-in">
@@ -246,11 +340,11 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
             <section v-if="activeTab === 'config' && config" key="config" class="space-y-4">
               <div class="console-fade-up flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h3 class="console-display text-base font-semibold">{{ configSections.find(function(section){ return section.key === activeConfigSection })?.label || '配置管理' }}</h3>
-                  <div class="mt-1 text-[12px] text-[var(--text-secondary)]">将配置区拆成 tabs，减少滚动长度。</div>
+                  <h3 class="console-display text-base">{{ configSections.find(function(section){ return section.key === activeConfigSection })?.label || '配置管理' }}</h3>
+                  <div class="mt-1 text-[12px] text-muted-foreground">将配置区拆成 tabs，减少滚动长度。</div>
                 </div>
                 <div class="flex flex-wrap gap-2">
-                  <button v-if="activeConfigSection === 'backends'" class="console-button" @click="addBackend">新增 Backend</button>
+                  <button v-if="activeConfigSection === 'backends'" class="console-button" @click="addBackend"><icon-plus class="h-3.5 w-3.5" ></icon-plus>新增 Backend</button>
                   <button class="console-button console-btn-primary relative" @click="saveConfig">保存配置 <span v-if="hasUnsavedChanges" class="console-unsaved-dot"></span></button>
                 </div>
               </div>
@@ -265,22 +359,30 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
                 <label class="console-field"><span class="console-field-label">监听地址</span><input v-model="config.listen" class="console-input" /></label>
                 <div class="mt-3 grid gap-3 md:grid-cols-2">
                   <label class="console-field"><span class="console-field-label">启用 Admin 密码</span><select v-model="config.console.enabled" class="console-input"><option :value="false">关闭</option><option :value="true">开启</option></select></label>
-                  <label class="console-field"><span class="console-field-label">Admin 密码</span><input v-model="config.console.password" type="password" class="console-input" /></label>
+                  <label class="console-field"><span class="console-field-label">Admin 密码</span>
+                    <div class="console-input-icon-wrap">
+                      <input v-model="config.console.password" :type="showAdminPassword ? 'text' : 'password'" class="console-input" />
+                      <button type="button" class="console-icon-inline-btn console-input-icon-btn" @click="showAdminPassword = !showAdminPassword" :aria-label="showAdminPassword ? '隐藏密码' : '显示密码'">
+                        <icon-eye-off v-if="showAdminPassword" class="h-4 w-4" ></icon-eye-off>
+                        <icon-eye v-else class="h-4 w-4" ></icon-eye>
+                      </button>
+                    </div>
+                  </label>
                 </div>
               </div>
 
               <div v-else-if="activeConfigSection === 'defaults'" class="console-card console-fade-up console-delay-2 p-4">
-                <div class="flex flex-wrap items-start justify-between gap-3 pb-3" style="border-bottom: 1px solid var(--border-subtle);">
+                <div class="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3">
                   <div>
-                    <h3 class="console-display text-base font-semibold">按后端模型名配置默认参数</h3>
-                    <div class="mt-1 text-[12px] leading-5 text-[var(--text-secondary)]">支持 <code class="console-mono text-[11px] text-[var(--text-accent)]">模型名@客户端协议</code>；<code class="console-mono text-[11px] text-[var(--text-accent)]">system_prompt</code> 设为 <code class="console-mono text-[11px] text-[var(--text-accent)]">none</code> 可显式不注入。</div>
+                    <h3 class="console-display text-base">按后端模型名配置默认参数</h3>
+                    <div class="mt-1 text-[12px] leading-5 text-muted-foreground">支持 <code class="console-mono text-[11px] text-foreground">模型名@客户端协议</code>；<code class="console-mono text-[11px] text-foreground">system_prompt</code> 设为 <code class="console-mono text-[11px] text-foreground">none</code> 可显式不注入。</div>
                   </div>
                 </div>
                 <div class="mt-3 space-y-3">
-                  <div v-for="(entry, entryIdx) in modelDefaultEntries" :key="entry.name" class="console-fade-up rounded-[6px] border p-4" :style="{ animationDelay: entryIdx * 0.05 + 's', borderColor: 'var(--border-subtle)', background: 'var(--bg-elevated)' }">
-                    <div class="mb-3 pb-2" style="border-bottom: 1px solid var(--border-subtle);">
-                      <div class="text-[13px] font-semibold text-[var(--text-primary)]">{{ entry.name }}</div>
-                      <div class="mt-1 text-[12px] leading-5 text-[var(--text-secondary)]">{{ modelDefaultReferencesText(entry.name) }}</div>
+                  <div v-for="(entry, entryIdx) in modelDefaultEntries" :key="entry.name" class="console-fade-up rounded-[6px] border border-border bg-muted/30 p-4" :style="{ animationDelay: entryIdx * 0.05 + 's' }">
+                    <div class="mb-3 border-b border-border pb-2">
+                      <div class="text-[13px] font-semibold text-foreground">{{ entry.name }}</div>
+                      <div class="mt-1 text-[12px] leading-5 text-muted-foreground">{{ modelDefaultReferencesText(entry.name) }}</div>
                     </div>
                     <div class="grid gap-3 lg:grid-cols-[200px_minmax(0,1fr)]">
                       <label class="console-field"><span class="console-field-label">默认推理强度</span>
@@ -291,10 +393,10 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
                       <label class="console-field"><span class="console-field-label">System Prompt</span><input v-model="entry.config.system_prompt" class="console-input" placeholder="留空=继承上层，输入 none=显式不注入" /></label>
                     </div>
                     <div v-if="entry.protocolOverrides.length > 0" class="mt-3 space-y-2">
-                      <div v-for="po in entry.protocolOverrides" :key="po.protocol" class="rounded-[6px] border p-3" style="border-color: #bfdbfe; background: var(--bg-accent);">
+                      <div v-for="po in entry.protocolOverrides" :key="po.protocol" class="rounded-[6px] border border-border bg-muted/40 p-3">
                         <div class="mb-2 flex items-center justify-between gap-3">
-                          <div class="text-[12px] font-medium text-[var(--text-accent)]">@{{ po.protocol }} 覆盖</div>
-                          <button class="console-button px-2 py-1 text-xs" style="border-color: #fecaca; color: var(--text-danger); background: var(--bg-danger-soft);" @click="removeProtocolOverride(entry.name, po.protocol)">删除</button>
+                          <div class="text-[12px] font-medium text-foreground">@{{ po.protocol }} 覆盖</div>
+                          <button class="console-button console-btn-danger px-2 py-1 text-xs" @click="removeProtocolOverride(entry.name, po.protocol)"><icon-trash class="h-3 w-3" ></icon-trash>删除</button>
                         </div>
                         <div class="grid gap-3 lg:grid-cols-[200px_minmax(0,1fr)]">
                           <label class="console-field"><span class="console-field-label">推理强度</span>
@@ -307,7 +409,7 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
                       </div>
                     </div>
                     <div v-if="availableProtocols(entry).length > 0" class="mt-3 flex items-center gap-2">
-                      <span class="text-[12px] text-[var(--text-secondary)]">添加协议覆盖：</span>
+                      <span class="text-[12px] text-muted-foreground">添加协议覆盖：</span>
                       <button v-for="proto in availableProtocols(entry)" :key="proto" class="console-button px-2 py-1 text-xs" @click="addProtocolOverride(entry.name, proto)">+ @{{ proto }}</button>
                     </div>
                   </div>
@@ -319,46 +421,46 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
                   <div class="flex flex-wrap items-start justify-between gap-3">
                     <div class="min-w-0 flex-1">
                       <div class="flex flex-wrap items-center gap-2">
-                        <h3 class="console-display text-base font-semibold">{{ backend.name || ('Backend ' + (backendIndex + 1)) }}</h3>
-                        <div class="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold" style="border-color: #bfdbfe; color: var(--text-accent); background: var(--bg-accent);">{{ backend.protocol || 'openai' }}</div>
-                        <div class="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold" :style="backendEnabled(backend) ? 'border-color: #bbf7d0; color: var(--text-success); background: var(--bg-success-soft);' : 'border-color: #fecaca; color: var(--text-danger); background: var(--bg-danger-soft);'">{{ backendEnabled(backend) ? '已启用' : '已禁用' }}</div>
+                        <h3 class="console-display text-base">{{ backend.name || ('Backend ' + (backendIndex + 1)) }}</h3>
+                        <div class="inline-flex items-center rounded-full bg-secondary px-2 py-0.5 text-[10px] font-bold text-secondary-foreground">{{ backend.protocol || 'openai' }}</div>
+                        <div class="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold" :class="backendEnabled(backend) ? 'border-success/30 bg-success/12 text-success' : 'border-border bg-muted text-muted-foreground'">{{ backendEnabled(backend) ? '已启用' : '已禁用' }}</div>
                         <span class="console-inline-code">{{ (backend.models || []).length }} models</span>
                       </div>
                       <div class="mt-2 console-backend-meta">
                         <div class="console-backend-meta-item console-backend-meta-item-wide">
                           <div class="console-field-label">URL</div>
-                          <div class="console-mono text-[13px] text-[var(--text-primary)] console-line-clamp-1" :title="backend.url || '-'">{{ backend.url || '-' }}</div>
+                          <div class="console-mono text-[13px] text-foreground console-line-clamp-1" :title="backend.url || '-'">{{ backend.url || '-' }}</div>
                         </div>
                         <div class="console-backend-meta-item">
                           <div class="console-field-label">前缀</div>
-                          <div class="console-mono text-[13px] text-[var(--text-primary)] console-text-truncate" :title="backend.path_prefix || '-'">{{ backend.path_prefix || '-' }}</div>
+                          <div class="console-mono text-[13px] text-foreground console-text-truncate" :title="backend.path_prefix || '-'">{{ backend.path_prefix || '-' }}</div>
                         </div>
                         <div class="console-backend-meta-item">
                           <div class="console-field-label">P / W</div>
-                          <div class="console-mono text-[13px] text-[var(--text-primary)]">{{ backend.priority ?? 0 }} / {{ backend.weight ?? 1 }}</div>
+                          <div class="console-mono text-[13px] text-foreground">{{ backend.priority ?? 0 }} / {{ backend.weight ?? 1 }}</div>
                         </div>
                         <div class="console-backend-meta-item">
                           <div class="console-field-label">认证</div>
-                          <div class="text-[13px] text-[var(--text-primary)]">{{ backend.api_key ? 'api_key' : '无' }}</div>
+                          <div class="text-[13px] text-foreground">{{ backend.api_key ? 'api_key' : '无' }}</div>
                         </div>
                         <div class="console-backend-meta-item">
                           <div class="console-field-label">Headers</div>
-                          <div class="text-[13px] text-[var(--text-primary)]">{{ Object.keys(backend.headers || {}).length === 0 ? '无' : Object.keys(backend.headers || {}).join(', ') }}</div>
+                          <div class="text-[13px] text-foreground">{{ Object.keys(backend.headers || {}).length === 0 ? '无' : Object.keys(backend.headers || {}).join(', ') }}</div>
                         </div>
                       </div>
                     </div>
                     <div class="flex shrink-0 flex-wrap gap-2">
-                      <button class="console-button" @click="startEditBackend(backendIndex)">编辑</button>
-                      <button class="console-button" style="border-color: #fecaca; background: var(--bg-danger-soft); color: var(--text-danger);" @click="removeBackend(backendIndex)">删除 Backend</button>
+                      <button class="console-button" @click="startEditBackend(backendIndex)"><icon-edit class="h-3.5 w-3.5" ></icon-edit>编辑</button>
+                      <button class="console-button console-btn-danger" @click="removeBackend(backendIndex)"><icon-trash class="h-3.5 w-3.5" ></icon-trash>删除 Backend</button>
                     </div>
                   </div>
                   <div class="mt-3 console-backend-models">
-                    <div class="flex items-center justify-between gap-3 px-3 py-2" style="border-bottom: 1px solid var(--border-subtle); background: rgba(255,255,255,0.35);">
+                    <div class="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
                       <div>
-                        <div class="text-[13px] font-medium text-[var(--text-primary)]">Models</div>
-                        <div class="mt-0.5 text-[12px] text-[var(--text-secondary)]">默认只读浏览；结构修改在编辑抽屉中完成。</div>
+                        <div class="text-[13px] font-medium text-foreground">Models</div>
+                        <div class="mt-0.5 text-[12px] text-muted-foreground">默认只读浏览；结构修改在编辑抽屉中完成。</div>
                       </div>
-                      <div class="text-[11px] text-[var(--text-muted)]">名称 / 别名 / Tokens / Reasoning / Prompt</div>
+                      <div class="text-[11px] text-muted-foreground">名称 / 别名 / Tokens / Reasoning / Prompt</div>
                     </div>
                     <div v-if="!backend.models || backend.models.length === 0" class="console-empty-state !min-h-[88px] !py-5"><div class="console-empty-icon">-</div><div>暂无 Model</div></div>
                     <div v-else>
@@ -366,16 +468,16 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
                         <div class="flex flex-wrap items-start justify-between gap-3">
                           <div class="min-w-0 flex-1">
                             <div class="flex flex-wrap items-center gap-2">
-                              <div class="console-mono text-[13px] font-semibold text-[var(--text-primary)]">{{ model.name || ('Model ' + (modelIndex + 1)) }}</div>
+                              <div class="console-mono text-[13px] font-semibold text-foreground">{{ model.name || ('Model ' + (modelIndex + 1)) }}</div>
                               <span v-if="model.default_max_tokens" class="console-inline-code">{{ model.default_max_tokens }} tok</span>
                               <span class="console-inline-code">{{ resolveEffectiveReasoning(model.name, model.reasoning_default_effort).value }}</span>
                             </div>
                             <div class="mt-1 flex flex-wrap gap-1.5" v-if="model.aliases && model.aliases.length > 0">
                               <span v-for="alias in model.aliases" :key="alias" class="console-inline-code">{{ alias }}</span>
                             </div>
-                            <div v-else class="mt-1 text-[12px] text-[var(--text-muted)]">无别名</div>
+                            <div v-else class="mt-1 text-[12px] text-muted-foreground">无别名</div>
                           </div>
-                          <div class="max-w-[260px] text-right text-[12px] leading-5 text-[var(--text-secondary)]">
+                          <div class="max-w-[260px] text-right text-[12px] leading-5 text-muted-foreground">
                             <div class="console-line-clamp-1" :title="resolveEffectiveReasoning(model.name, model.reasoning_default_effort).source">{{ resolveEffectiveReasoning(model.name, model.reasoning_default_effort).source }}</div>
                           </div>
                         </div>
@@ -394,18 +496,18 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
               </transition>
               <transition name="console-editor-drawer">
                 <aside v-if="editingBackendDraft" class="console-editor-drawer">
-                  <div class="flex items-center justify-between gap-3 px-4 py-4" style="border-bottom: 1px solid var(--border-subtle);">
+                  <div class="flex items-center justify-between gap-3 border-b border-border px-4 py-4">
                     <div>
-                      <div class="console-display text-base font-semibold">编辑 Backend</div>
-                      <div class="mt-1 text-[12px] leading-5 text-[var(--text-secondary)]">{{ editingBackendDraft.name || (editingBackendIndex !== null ? ('Backend ' + (editingBackendIndex + 1)) : '未命名 Backend') }}</div>
+                      <div class="console-display text-base">编辑 Backend</div>
+                      <div class="mt-1 text-[12px] leading-5 text-muted-foreground">{{ editingBackendDraft.name || (editingBackendIndex !== null ? ('Backend ' + (editingBackendIndex + 1)) : '未命名 Backend') }}</div>
                     </div>
                     <div class="flex flex-wrap gap-2">
-                      <button class="console-button console-btn-primary" @click="saveBackendDraft">应用修改</button>
+                      <button class="console-button console-btn-primary" @click="saveBackendDraft"><icon-check-circle class="h-3.5 w-3.5" ></icon-check-circle>应用修改</button>
                       <button class="console-button" @click="cancelEditBackend">取消编辑</button>
                     </div>
                   </div>
                   <div class="console-editor-drawer-body">
-                    <div class="mb-3 rounded-[4px] border px-3 py-2 text-[12px] leading-5" style="border-color: #c7d2fe; background: var(--bg-accent); color: var(--text-accent);">编辑中的输入不会写入后端；只有点击“应用修改”后进入待保存配置，再点击“保存配置”才会真正提交。</div>
+                    <div class="mb-3 rounded-[4px] border border-border bg-accent px-3 py-2 text-[12px] leading-5 text-accent-foreground">编辑中的输入不会写入后端；只有点击“应用修改”后进入待保存配置，再点击“保存配置”才会真正提交。</div>
                     <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                       <label class="console-field"><span class="console-field-label">名称</span><input v-model="editingBackendDraft.name" class="console-input" /></label>
                       <label class="console-field"><span class="console-field-label">URL</span><input v-model="editingBackendDraft.url" class="console-input console-mono" /></label>
@@ -420,18 +522,18 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
                     <label class="console-field mt-3"><span class="console-field-label">Header(JSON)</span>
                       <textarea :value="JSON.stringify(editingBackendDraft.headers || {}, null, 2)" rows="4" class="console-input console-textarea console-mono" @change="editingBackendDraft.headers = JSON.parse($event.target.value || '{}')"></textarea>
                     </label>
-                    <div class="mt-2 text-[12px] leading-5 text-[var(--text-secondary)]">常规认证请优先填写 API Key；Header(JSON) 仅用于额外自定义头或兼容性覆盖。</div>
-                    <div class="mt-4 flex items-center justify-between gap-3 pt-3" style="border-top: 1px solid var(--border-subtle);">
+                    <div class="mt-2 text-[12px] leading-5 text-muted-foreground">常规认证请优先填写 API Key；Header(JSON) 仅用于额外自定义头或兼容性覆盖。</div>
+                    <div class="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3">
                       <div>
                         <div class="text-[13px] font-medium">Models</div>
-                        <div class="mt-0.5 text-[12px] text-[var(--text-secondary)]">维护模型名、别名、max_tokens 与局部推理强度。</div>
+                        <div class="mt-0.5 text-[12px] text-muted-foreground">维护模型名、别名、max_tokens 与局部推理强度。</div>
                       </div>
-                      <button class="console-button" @click="addDraftModel">新增 Model</button>
+                      <button class="console-button" @click="addDraftModel"><icon-plus class="h-3.5 w-3.5" ></icon-plus>新增 Model</button>
                     </div>
-                    <div v-for="(model, modelIndex) in editingBackendDraft.models" :key="modelIndex" class="mt-3 rounded-[6px] border p-4" style="border-color: var(--border-subtle); background: var(--bg-elevated);">
-                      <div class="mb-3 flex items-center justify-between gap-3 pb-3" style="border-bottom: 1px solid var(--border-subtle);">
+                    <div v-for="(model, modelIndex) in editingBackendDraft.models" :key="modelIndex" class="mt-3 rounded-[6px] border border-border bg-muted/30 p-4">
+                      <div class="mb-3 flex items-center justify-between gap-3 border-b border-border pb-3">
                         <div class="text-[13px] font-medium">{{ model.name || ('Model ' + (modelIndex + 1)) }}</div>
-                        <button class="console-button px-2 py-1 text-xs" style="border-color: #fecaca; background: var(--bg-danger-soft); color: var(--text-danger);" @click="removeDraftModel(modelIndex)">删除 Model</button>
+                        <button class="console-button console-btn-danger px-2 py-1 text-xs" @click="removeDraftModel(modelIndex)"><icon-trash class="h-3 w-3" ></icon-trash>删除 Model</button>
                       </div>
                       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                         <label class="console-field"><span class="console-field-label">模型名</span><input v-model="model.name" class="console-input console-mono" /></label>
@@ -443,8 +545,8 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
                           </select>
                         </label>
                       </div>
-                      <div class="mt-3 space-y-1 text-[12px] leading-5 text-[var(--text-secondary)]">
-                        <div>最终生效推理强度：<span class="font-semibold text-[var(--text-primary)]">{{ resolveEffectiveReasoning(model.name, model.reasoning_default_effort).value }}</span></div>
+                      <div class="mt-3 space-y-1 text-[12px] leading-5 text-muted-foreground">
+                        <div>最终生效推理强度：<span class="font-semibold text-foreground">{{ resolveEffectiveReasoning(model.name, model.reasoning_default_effort).value }}</span></div>
                         <div>来源：{{ resolveEffectiveReasoning(model.name, model.reasoning_default_effort).source }}。优先级：model_defaults（按后端模型名） &gt; 当前模型局部覆盖；若两层都未设置，则不下发推理强度。</div>
                       </div>
                       <label class="console-field mt-3"><span class="console-field-label">System Prompt</span><textarea v-model="model.system_prompt" rows="3" class="console-input console-textarea"></textarea></label>
@@ -456,7 +558,7 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
 
             <!-- Status -->
             <section v-else-if="activeTab === 'status' && status" key="status" class="space-y-4">
-              <div class="console-fade-up"><h3 class="console-display text-base font-semibold">运行状态总览</h3></div>
+              <div class="console-fade-up"><h3 class="console-display text-base">运行状态总览</h3></div>
               <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <div class="console-card console-fade-up console-delay-1 p-4"><div class="console-stat-label">配置文件</div><div class="console-mono mt-2 break-all text-[13px] font-semibold leading-5">{{ status.config_path }}</div></div>
                 <div class="console-card console-fade-up console-delay-2 p-4"><div class="console-stat-label">监听地址</div><div class="mt-2 text-[13px] font-semibold leading-5">{{ status.listen }}</div></div>
@@ -467,19 +569,19 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
                 <div class="console-card console-fade-up console-delay-7 p-4"><div class="console-stat-label">Alias 数</div><div class="console-gradient-text mt-2 text-2xl font-bold">{{ status.alias_count }}</div></div>
               </div>
               <div class="console-card console-fade-up console-delay-3 overflow-hidden">
-                <div class="px-4 py-3" style="border-bottom: 1px solid var(--border-subtle);"><div class="text-[14px] font-medium">Backend 健康表</div></div>
+                <div class="border-b border-border px-4 py-3"><div class="text-[14px] font-medium">Backend 健康表</div></div>
                 <div v-if="status.backends.length === 0" class="console-empty-state"><div class="console-empty-icon">-</div><div>暂无 Backend 数据</div></div>
                 <div v-else class="overflow-x-auto">
                   <table class="console-table">
                     <thead><tr><th>Backend</th><th>状态</th><th>协议</th><th>优先级</th><th>权重</th><th>失败次数</th></tr></thead>
                     <tbody>
                       <tr v-for="item in status.backends" :key="item.name">
-                        <td class="font-medium text-[var(--text-primary)]">{{ item.name }}</td>
-                        <td><span class="inline-flex items-center px-2 py-0.5 text-[10px] font-bold" :class="item.state === 'healthy' ? 'console-badge-healthy' : item.state === 'tripped' ? 'console-badge-tripped' : item.state === 'disabled' ? 'console-badge-tripped' : 'console-badge-probing'" style="border-width: 1px;"><span class="console-pulse" :class="item.state === 'healthy' ? 'console-pulse-green' : item.state === 'tripped' ? 'console-pulse-red' : item.state === 'disabled' ? 'console-pulse-red' : 'console-pulse-amber'"></span>{{ item.state }}</span></td>
-                        <td><span class="console-mono text-[var(--text-accent)]">{{ item.protocol }}</span></td>
+                        <td class="font-medium text-foreground">{{ item.name }}</td>
+                        <td><span class="console-badge" :class="healthBadgeClass(item.state)"><span class="console-pulse" :class="healthPulseClass(item.state)"></span>{{ item.state }}</span></td>
+                        <td><span class="console-mono text-muted-foreground">{{ item.protocol }}</span></td>
                         <td class="console-mono">{{ item.priority }}</td>
                         <td class="console-mono">{{ item.weight }}</td>
-                        <td class="console-mono" :style="item.consecutive_fails > 0 ? 'color: var(--text-danger);' : 'color: var(--text-secondary);'">{{ item.consecutive_fails }}</td>
+                        <td class="console-mono" :class="item.consecutive_fails > 0 ? 'text-destructive' : 'text-muted-foreground'">{{ item.consecutive_fails }}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -489,7 +591,7 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
 
             <!-- Logs -->
             <section v-else-if="activeTab === 'logs'" key="logs" class="space-y-4">
-              <div class="console-fade-up"><h3 class="console-display text-base font-semibold">日志统计与筛选</h3></div>
+              <div class="console-fade-up"><h3 class="console-display text-base">日志统计与筛选</h3></div>
               <div class="console-card console-fade-up console-delay-1 p-4">
                 <div class="flex flex-wrap items-end gap-3">
                   <label class="console-field"><span class="console-field-label">Backend</span><input v-model="logFilters.backend" class="console-input console-mono" /></label>
@@ -502,12 +604,12 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
               <div v-if="logs" class="grid gap-3 md:grid-cols-3">
                 <div class="console-card console-fade-up console-delay-2 p-4"><div class="console-stat-label">请求数</div><div class="console-gradient-text mt-2 text-2xl font-bold">{{ logs.summary.total_requests }}</div></div>
                 <div class="console-card console-fade-up console-delay-3 p-4"><div class="console-stat-label">总 Tokens</div><div class="console-gradient-text mt-2 text-2xl font-bold">{{ logs.summary.total_tokens }}</div></div>
-                <div class="console-card console-fade-up console-delay-4 p-4"><div class="console-stat-label">错误数</div><div class="mt-2 text-2xl font-bold" :style="logs.summary.error_count > 0 ? 'color: var(--text-danger);' : ''"><span :class="logs.summary.error_count > 0 ? '' : 'console-gradient-text'">{{ logs.summary.error_count }}</span></div></div>
+                <div class="console-card console-fade-up console-delay-4 p-4"><div class="console-stat-label">错误数</div><div class="mt-2 text-2xl font-bold" :class="logs.summary.error_count > 0 ? 'text-destructive' : 'console-gradient-text'">{{ logs.summary.error_count }}</div></div>
               </div>
               <div v-if="logs" class="console-card console-fade-up console-delay-3 overflow-hidden">
-                <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3" style="border-bottom: 1px solid var(--border-subtle);">
+                <div class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
                   <div class="text-[14px] font-medium">请求日志</div>
-                  <div class="flex items-center gap-3 text-[12px] text-[var(--text-secondary)]">
+                  <div class="flex items-center gap-3 text-[12px] text-muted-foreground">
                     <span class="console-mono">第 {{ logPagination.page }} / {{ Math.max(logPagination.total_pages, 1) }} 页</span>
                     <span class="console-mono">{{ logRangeText }}</span>
                   </div>
@@ -518,31 +620,31 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
                     <thead><tr><th>时间</th><th>Backend</th><th>协议</th><th>客户端模型</th><th>后端模型</th><th>Client</th><th>Transport</th><th>Status</th><th>Tokens</th><th>Error</th></tr></thead>
                     <tbody>
                       <tr v-for="(item, index) in logs.items" :key="index">
-                        <td class="console-mono text-[var(--text-secondary)]">{{ item.time }}</td>
-                        <td class="font-medium text-[var(--text-primary)]">{{ item.backend }}</td>
-                        <td class="console-mono text-[var(--text-accent)]">{{ displayProtocol(item) }}</td>
-                        <td class="console-mono text-[var(--text-secondary)]">{{ displayClientModel(item) }}</td>
-                        <td class="console-mono text-[var(--text-accent)]">
+                        <td class="console-mono text-muted-foreground">{{ item.time }}</td>
+                        <td class="font-medium text-foreground">{{ item.backend }}</td>
+                        <td class="console-mono text-muted-foreground">{{ displayProtocol(item) }}</td>
+                        <td class="console-mono text-muted-foreground">{{ displayClientModel(item) }}</td>
+                        <td class="console-mono font-medium text-foreground">
                           <div>{{ displayBackendModel(item) }}</div>
-                          <div v-if="item.forwarded_model && item.response_model && item.forwarded_model !== item.response_model" class="mt-1 text-[10px] text-[var(--text-muted)]">响应: {{ item.response_model }}</div>
+                          <div v-if="item.forwarded_model && item.response_model && item.forwarded_model !== item.response_model" class="mt-1 text-[10px] font-normal text-muted-foreground">响应: {{ item.response_model }}</div>
                         </td>
-                        <td class="console-mono text-[var(--text-secondary)]">{{ item.client_key }}</td>
-                        <td class="console-mono text-[var(--text-muted)]">{{ item.transport || 'http' }}</td>
-                        <td class="console-mono" :style="item.status_code >= 400 ? 'color: var(--text-danger);' : item.status_code >= 300 ? 'color: var(--text-warning);' : 'color: var(--text-success);'">{{ item.status_code }}</td>
-                        <td class="console-mono text-[var(--text-accent)]">{{ item.total_tokens }}</td>
+                        <td class="console-mono text-muted-foreground">{{ item.client_key }}</td>
+                        <td class="console-mono text-muted-foreground">{{ item.transport || 'http' }}</td>
+                        <td class="console-mono" :class="item.status_code >= 400 ? 'text-destructive' : item.status_code >= 300 ? 'text-warning' : 'text-success'">{{ item.status_code }}</td>
+                        <td class="console-mono font-medium text-foreground">{{ item.total_tokens }}</td>
                         <td>
-                          <span v-if="item.error_category" class="inline-flex items-center px-2 py-0.5 text-[10px] font-bold" :class="item.error_category === 'success' || !item.error_category ? 'console-badge-healthy' : 'console-badge-tripped'" style="border-width: 1px;">{{ item.error_category }}</span>
-                          <span v-else class="text-[var(--text-muted)]">-</span>
+                          <span v-if="item.error_category" class="console-badge" :class="item.error_category === 'success' || !item.error_category ? 'console-badge-healthy' : 'console-badge-tripped'">{{ item.error_category }}</span>
+                          <span v-else class="text-muted-foreground">-</span>
                         </td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
-                <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3" style="border-top: 1px solid var(--border-subtle);">
-                  <div class="text-[12px] text-[var(--text-secondary)]">过滤后共 <span class="console-mono text-[var(--text-primary)]">{{ logPagination.total }}</span> 条</div>
+                <div class="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
+                  <div class="text-[12px] text-muted-foreground">过滤后共 <span class="console-mono text-foreground">{{ logPagination.total }}</span> 条</div>
                   <div class="flex items-center gap-2">
-                    <button class="console-button" :disabled="!logPagination.has_prev || loading" @click="goToLogPage(logPagination.page - 1)">上一页</button>
-                    <button class="console-button" :disabled="!logPagination.has_next || loading" @click="goToLogPage(logPagination.page + 1)">下一页</button>
+                    <button class="console-button" :disabled="!logPagination.has_prev || loading" @click="goToLogPage(logPagination.page - 1)"><icon-chevron-left class="h-3.5 w-3.5" ></icon-chevron-left>上一页</button>
+                    <button class="console-button" :disabled="!logPagination.has_next || loading" @click="goToLogPage(logPagination.page + 1)">下一页<icon-chevron-right class="h-3.5 w-3.5" ></icon-chevron-right></button>
                   </div>
                 </div>
               </div>
@@ -550,7 +652,7 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
 
             <!-- Test -->
             <section v-else-if="activeTab === 'test'" key="test" class="space-y-4">
-              <div class="console-fade-up"><h3 class="console-display text-base font-semibold">在线测试</h3></div>
+              <div class="console-fade-up"><h3 class="console-display text-base">在线测试</h3></div>
               <div class="console-card console-fade-up console-delay-1 p-4">
                 <div class="grid gap-3 md:grid-cols-3">
                   <label class="console-field"><span class="console-field-label">Backend</span><select v-model="testForm.backend" class="console-input"><option v-for="item in backendOptions" :key="item.name" :value="item.name">{{ item.name }}</option></select></label>
@@ -561,8 +663,8 @@ select.console-input option { background: #ffffff; color: var(--text-primary); }
                 <button class="console-button console-btn-primary mt-3" @click="runTest">发送测试</button>
               </div>
               <div v-if="testResult" class="console-fade-up console-delay-2 relative overflow-hidden console-terminal-output">
-                <div class="px-4 py-3" style="border-bottom: 1px solid var(--border-subtle);"><span class="text-[12px] font-medium text-[var(--text-secondary)]">Probe Output</span></div>
-                <pre class="console-mono overflow-x-auto p-4 text-[12px] leading-6 text-[var(--text-primary)]">{{ JSON.stringify(testResult, null, 2) }}</pre>
+                <div class="border-b border-border px-4 py-3"><span class="text-[12px] font-medium text-muted-foreground">Probe Output</span></div>
+                <pre class="console-mono overflow-x-auto p-4 text-[12px] leading-6 text-foreground">{{ JSON.stringify(testResult, null, 2) }}</pre>
               </div>
             </section>
 
@@ -645,7 +747,13 @@ const configSections = [
   { key: 'backends', label: '后端列表' },
 ]
 
-createApp({
+function icon(paths) {
+  return {
+    template: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + paths + '</svg>',
+  }
+}
+
+const app = createApp({
   setup() {
     const activeTab = ref(getTabFromHash())
     const loading = ref(false)
@@ -663,10 +771,33 @@ createApp({
     const editingBackendIndex = ref(null)
     const editingBackendDraft = ref(null)
     const activeConfigSection = ref('basic')
+    const theme = ref(document.documentElement.classList.contains('dark') ? 'dark' : 'light')
+    const showLoginPassword = ref(false)
+    const showAdminPassword = ref(false)
 
     const backendOptions = computed(() => (config.value?.backends ?? []).filter(backendEnabled))
     const hasUnsavedChanges = computed(() => config.value ? JSON.stringify(config.value) !== configSnapshot.value : false)
     const activeTabMeta = computed(() => tabs.find(t => t.key === activeTab.value) || tabs[0])
+
+    function applyTheme(next) {
+      theme.value = next
+      document.documentElement.classList.toggle('dark', next === 'dark')
+      try { localStorage.setItem('gatelm-console-theme', next) } catch (e) {}
+    }
+    function toggleTheme() { applyTheme(theme.value === 'dark' ? 'light' : 'dark') }
+
+    function healthBadgeClass(state) {
+      if (state === 'healthy') return 'console-badge-healthy'
+      if (state === 'tripped') return 'console-badge-tripped'
+      if (state === 'disabled') return 'console-badge-disabled'
+      return 'console-badge-probing'
+    }
+    function healthPulseClass(state) {
+      if (state === 'healthy') return 'console-pulse-healthy'
+      if (state === 'tripped') return 'console-pulse-tripped'
+      if (state === 'disabled') return 'console-pulse-disabled'
+      return 'console-pulse-probing'
+    }
 
     function normalizeReasoningOverride(value) {
       return (value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh') ? value : ''
@@ -854,10 +985,10 @@ createApp({
 
     return {
       activeTab, loading, mobileMenuOpen, config, status, logs, testResult, toasts, logFilters, logPage, testForm, auth,
-      activeConfigSection,
+      activeConfigSection, theme, showLoginPassword, showAdminPassword,
       backendOptions, hasUnsavedChanges, activeTabMeta, modelDefaultEntries, logPagination, logRangeText,
       tabs, configSections, reasoningOverrideOptions,
-      removeToast, showToast, setActiveTab, setActiveConfigSection,
+      removeToast, showToast, setActiveTab, setActiveConfigSection, toggleTheme, healthBadgeClass, healthPulseClass,
       login, logout, refreshAll, saveConfig, runTest, loadLogs, applyLogFilters, goToLogPage,
       addBackend, removeBackend,
       addProtocolOverride, removeProtocolOverride, availableProtocols,
@@ -866,7 +997,23 @@ createApp({
       editingBackendIndex, editingBackendDraft, startEditBackend, cancelEditBackend, saveBackendDraft, addDraftModel, removeDraftModel,
     }
   }
-}).mount('#app')
+})
+
+app.component('icon-plus', icon('<path d="M12 5v14M5 12h14"/>'))
+app.component('icon-trash', icon('<path d="M4 7h16"/><path d="M9 7V4.8c0-.44.36-.8.8-.8h4.4c.44 0 .8.36.8.8V7"/><path d="M6 7l1 12.2c.05.99.87 1.8 1.86 1.8h6.28c.99 0 1.8-.81 1.86-1.8L18 7"/><path d="M10 11v6M14 11v6"/>'))
+app.component('icon-edit', icon('<path d="M12.9 4.6l4.5 4.5L7 19.5H2.5V15z"/>'))
+app.component('icon-refresh', icon('<path d="M4 12a8 8 0 0 1 13.6-5.7L20 8"/><path d="M20 4v4h-4"/><path d="M20 12a8 8 0 0 1-13.6 5.7L4 16"/><path d="M4 20v-4h4"/>'))
+app.component('icon-logout', icon('<path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3"/><path d="M15 16l4-4-4-4"/><path d="M19 12H9"/>'))
+app.component('icon-sun', icon('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/>'))
+app.component('icon-moon', icon('<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/>'))
+app.component('icon-eye', icon('<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>'))
+app.component('icon-eye-off', icon('<path d="M3 3l18 18"/><path d="M10.6 5.2A10.6 10.6 0 0 1 12 5c6.5 0 10 7 10 7a15.6 15.6 0 0 1-3.4 4.4M6.6 6.6C4.4 8.1 2 12 2 12s3.5 7 10 7a9.7 9.7 0 0 0 3.4-.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>'))
+app.component('icon-check-circle', icon('<circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.2 2.2 4.8-5.4"/>'))
+app.component('icon-alert-triangle', icon('<path d="M12 3.5 21 19H3z"/><path d="M12 9.5v4.2M12 16.5h.01"/>'))
+app.component('icon-info', icon('<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11.2 11h1v5.5h1"/>'))
+app.component('icon-chevron-left', icon('<path d="M15 5l-7 7 7 7"/>'))
+app.component('icon-chevron-right', icon('<path d="M9 5l7 7-7 7"/>'))
+app.mount('#app')
 </script>
 </body>
 </html>
