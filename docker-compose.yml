@@ -1,0 +1,12 @@
+services:
+  gatelm:
+    # Replace <your-dockerhub-username> with your DockerHub username,
+    # or use GHCR: ghcr.io/birdxs/gatelm:latest
+    image: <your-dockerhub-username>/gatelm:latest
+    container_name: gatelm
+    restart: unless-stopped
+    ports:
+      - "18765:18765"
+    volumes:
+      - ./config.yaml:/config.yaml:ro
+    entrypoint: ["/gatelm", "/config.yaml"]
