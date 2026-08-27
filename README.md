@@ -35,6 +35,28 @@ go build -o gatelm ./cmd/gatelm/
 
 示例默认监听 `:18765`，启用 debug 日志加 `-debug` 参数。管理台 UI 已内置为单文件 HTML，无需 Node.js 构建。
 
+### Docker Compose 部署
+
+```bash
+# 1. 克隆仓库
+git clone https://github.com/birdxs/gatelm.git
+cd gatelm
+
+# 2. 创建并编辑配置文件
+cp config.example.yaml config.yaml
+# 编辑 config.yaml，填入后端 URL 和 API Key
+
+# 3. 编辑 docker-compose.yml，将 image 替换为实际镜像地址
+#    DockerHub: <your-username>/gatelm:latest
+#    GHCR:      ghcr.io/birdxs/gatelm:latest
+
+# 4. 启动
+docker compose up -d
+
+# 5. 查看日志
+docker compose logs -f
+```
+
 ## 配置说明
 
 完整配置参考 [`config.example.yaml`](config.example.yaml)，以下是核心概念。
